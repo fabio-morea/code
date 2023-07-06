@@ -1,0 +1,202 @@
+---
+title: "variablity on R of Cliques"
+author: "Fabio Morea"
+date: "2023-065-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(aricode) # NMI 
+source('./functions_graph_analysis.R')
+```
+
+# function
+ 
+```{r}
+consensus_from_file <-
+    function(mu_values, gamma_lim, group_outliers = FALSE) {
+        if (group_outliers) {group_out <- "_G"} else {group_out <- ""}
+
+        for (mu in mu_values) {
+            summary_results_cons <- data.frame()
+            membership_matrix <- c()
+            print(mu)
+            g <- load_benchmark_network(mui = mu,
+                                        path = path,
+                                        verbose = FALSE)
+            summary_results <-read_csv(paste0('results/summary_single_', mu, '.csv'),show_col_types = FALSE)
+            summary_results$method <-paste0(summary_results$method, '_cons_', gamma_lim)
+            membership_matrix <- read_csv(paste0('results/matrix_single_', mu, '.csv'),show_col_types = FALSE)
+            
+            for (met in unique(summary_results$method)) {
+                print(met)
+                selected_rows <- (summary_results$method == met)
+                cons_communities <- consensus(t(membership_matrix[selected_rows,]), gamma_lim = gamma_lim)
+                cons_communities$algorithm <- met
+                if (group_outliers) {
+                    cons_communities$membership[cons_communities$gamma < gamma_lim] <- 0
+                }
+                results <- analyse_communities(g, cons_communities, verbose = FALSE)
+                results$mu_nominal <- mu/100
+                summary_results_cons <- rbind(summary_results_cons, results)
+                
+            }
+            file_summary <- paste0('results/summary_cons_', mu, '_',gamma_lim,'.csv')
+        print(paste('writing ' , file_summary))
+        summary_results_cons %>% write.csv(file_summary)
+
+            
+        }
+
+    }
+
+ 
+```
+
+# 1 incorporate (LP, gmin = 0.2)
+
+```{r}
+mu_values = seq(5, 60, 5)
+```
+
+
+```{r}
+gamma_lim = 0.2
+consensus_from_file(
+    mu_values = mu_values, 
+    gamma_lim = gamma_lim , 
+    group_outliers = FALSE)
+    
+```
+
+ 
+ 
+
+
+
+```{r}
+data_to_plot <- data.frame()
+for (mu in mu_values) {
+    print(mu)
+    data_to_plot <- rbind(data_to_plot,
+      read_csv(paste0('results/summary_cons_', mu, '_',gamma_lim,'.csv'), show_col_types = FALSE))
+}
+
+
+
+p1 <- data_to_plot %>% 
+  group_by(method, mu_nominal) %>% 
+  summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
+    ggplot(aes(x = mu_nominal, y = mean_nmi)) +
+  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "lightyellow", alpha = 0.1)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nmi-2*sd_nmi, ymax = mean_nmi + 2*sd_nmi, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 0.5)+geom_hline(yintercept = 1)+geom_hline(yintercept = 0)+
+  geom_vline(xintercept = 0.5, color = 'red')+
+  labs(title = "Normalized Mutual Information ", y = "NMI", x = "empirical mixing parameter") +
+  theme_light()   
+ 
+ 
+p2 <- data_to_plot %>% 
+  group_by(method, as.factor(mu_nominal)) %>%  
+  ggplot(aes(x = mu_nominal, y = nc_norm)) +
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_hline(yintercept = 0.5) +
+  geom_vline(xintercept = 0.5, color = 'red')+
+  labs(title = "number of communities ", y = "normalized number of communities C/C0", x = "empirical mixing parameter") +
+  theme_light()   
+
+grid.arrange(p1, p2, ncol = 2)
+
+```
+
+
+```{r}
+data_to_plot %>%
+    select(mu_nominal, mu_emp, mu_built_in) %>%
+    ggplot(aes(x = mu_built_in, y = mu_emp)) +
+    geom_abline(coef=c(0,1))+
+    geom_point(aes(color = as.factor(mu_nominal))) +
+    xlim(0,1)+ylim(0,1)+
+    
+    theme_light()   
+```
+
+  
+## 2 highlight (LP, gmin = 0.9)
+
+```{r}
+gamma_lim = 0.9
+consensus_from_file(
+    mu_values = mu_values, 
+    gamma_lim = gamma_lim, 
+    group_outliers = FALSE)
+    
+```
+
+ 
+```{r}
+data_to_plot <- data.frame()
+for (mu in mu_values) {
+    print(mu)
+    data_to_plot <- rbind(data_to_plot,
+      read_csv(paste0('results/summary_cons_', mu, '_',gamma_lim,'.csv'), show_col_types = FALSE))
+}
+ 
+
+```
+
+## 3 group (LP, gmin = 0.9 and group)
+
+
+```{r}
+gamma_lim = 0.9
+consensus_from_file(
+    mu_values = mu_values, 
+    gamma_lim = gamma_lim, 
+    group_outliers = TRUE)
+    
+```
+
+ 
+```{r}
+data_to_plot <- data.frame()
+for (mu in mu_values) {
+    print(mu)
+    data_to_plot <- rbind(data_to_plot,
+      read_csv(paste0('results/summary_cons_', mu, '_',gamma_lim,'_G.csv'), show_col_types = FALSE))
+}
+ 
+```
+ 
+# final plot
+grid.arrange(p1, p4, p2, p5, p3, p6, ncol = 2, nrow = 3)
+
+```{r}
+#load data from single trials
+summary_results <- data.frame()
+membership_matrix <- c()
+for (mu in mu_values) {
+    summary_results <-
+        rbind(summary_results, 
+              read_csv(paste0('results/summary_single_', mu, '.csv')))
+ 
+}
+
+data_to_plot1 <- rbind(data_to_plot%>% select(colnames(summary_results)), summary_results) 
+```
+
+ 
+

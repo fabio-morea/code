@@ -1,0 +1,30 @@
+---
+title: "variablity on random networks"
+author: "Fabio Morea"
+date: "2023-065-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+ 
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+```
+
+
+```{r}
+set.seed(1234)
+N = 100
+for (a in seq(0.1, 0.9, 0.1)) {
+    g <- as.undirected(sample_gnp(N, a))
+    V(g)$name <- seq(N)
+    E(g)$w <- 1.0
+    write.graph(g, paste0('random_', N, '_', a, '.gml'), format = 'gml')
+    print(ecount(g))
+}
+
+```
+

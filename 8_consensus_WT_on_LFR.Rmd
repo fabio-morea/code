@@ -1,0 +1,188 @@
+---
+title: "variablity on R of Cliques"
+author: "Fabio Morea"
+date: "2023-065-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(aricode) # NMI 
+source('./functions_graph_analysis.R')
+```
+
+ 
+
+```{r}
+path <- "./benchmark/LFR/LFR_benchmark_"
+mui = seq(5,60,5)
+method_base <- 'WT'
+
+```
+
+## 1 incorporate (WT, gmin = 0.2)
+```{r}
+method = paste0(method_base,'_inc')
+gamma_lim = 0.2
+summary_n_trials_cons <- data.frame()
+nc_builtin <- c()
+for (mu in mui) {
+  print('-')
+  g <- load_benchmark_network(mui = mu,
+                              path = path,
+                              verbose = TRUE)
+  
+  nc_builtin <- c(nc_builtin,max(V(g)$community))
+  
+  membership_matrix <- find_communities_N_times (g,
+    n_trials = 100,
+    methods = substr(method,1,2))
+   
+  cons_communities <- consensus(membership_matrix, gamma_lim = gamma_lim)
+
+  results <- analyse_communities(g, cons_communities, verbose = TRUE)
+  summary_n_trials_cons <- rbind(summary_n_trials_cons, results )
+  
+}
+summary_n_trials_cons$nc_norm <- summary_n_trials_cons$nc / nc_builtin
+summary_n_trials_cons %>% write.csv(paste0('./tmp/summary_',method,'.csv'))
+```
+
+
+ 
+
+
+
+
+## 2 highlight (WT, gmin = 0.9)
+```{r}
+method <- paste0(method_base,'_high')
+gamma_lim = 0.9
+summary_n_trials_cons <- data.frame()
+nc_builtin <- c()
+for (mu in mui) {
+  print('-')
+  g <- load_benchmark_network(mui = mu,
+                              path = path,
+                              verbose = TRUE)
+  
+  nc_builtin <- c(nc_builtin,max(V(g)$community))
+  
+  membership_matrix <- find_communities_N_times (g,
+    n_trials = 100,
+    methods = substr(method,1,2))
+   
+  cons_communities <- consensus(membership_matrix, gamma_lim = gamma_lim)
+
+  results <- analyse_communities(g, cons_communities, verbose = TRUE)
+  summary_n_trials_cons <- rbind(summary_n_trials_cons, results )
+  
+}
+summary_n_trials_cons$nc_norm <- summary_n_trials_cons$nc / nc_builtin
+summary_n_trials_cons %>% write.csv(paste0('./tmp/summary_',method,'.csv'))
+```
+
+
+
+
+
+
+
+
+
+## 3 group (WT, gmin = 0.9 and group)
+```{r}
+method = paste0(method_base, '_g')
+gamma_lim = 0.9
+summary_n_trials_cons <- data.frame()
+nc_builtin <- c()
+for (mu in mui) {
+  print('-')
+  g <- load_benchmark_network(mui = mu,
+                              path = path,
+                              verbose = TRUE)
+  
+  nc_builtin <- c(nc_builtin,max(V(g)$community))
+  
+  membership_matrix <- find_communities_N_times (g,
+    n_trials = 100,
+    methods = substr(method,1,2))
+   
+  cons_communities <- consensus(membership_matrix, gamma_lim = gamma_lim)
+  cons_communities$membership[ cons_communities$gamma <=gamma_lim ] <- 0
+
+  results <- analyse_communities(g, cons_communities, verbose = TRUE)
+  summary_n_trials_cons <- rbind(summary_n_trials_cons, results )
+  
+}
+summary_n_trials_cons$nc_norm <- summary_n_trials_cons$nc / nc_builtin
+summary_n_trials_cons %>% write.csv(paste0('./tmp/summary_',method,'.csv'))
+```
+
+ 
+ 
+
+# plots for paper
+```{r}
+s1<- read_csv(paste0('./tmp/summary_WT_inc.csv'))
+s2<- read_csv(paste0('./tmp/summary_WT_high.csv'))
+s3<- read_csv(paste0('./tmp/summary_WT_g.csv'))
+
+summary_n_trials_cons <- rbind(s1,s2,s3)
+summary_n_trials_cons <- summary_n_trials_cons %>%
+  mutate(across("method", str_replace, "WT_inc_cons", "incorporate"))%>%
+  mutate(across("method", str_replace, "WT_high_cons", "highlight"))%>%
+  mutate(across("method", str_replace, "WT_g_cons", "group"))
+
+p1 <- summary_n_trials_cons %>% rename(outliers = method) %>%
+  group_by(outliers, mu) %>% 
+  summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
+  
+  ggplot(aes(x = mu, y = mean_nmi, shape = outliers)) +
+  geom_line(aes(color = outliers)) +
+  geom_point(aes(color = outliers)) +
+  geom_linerange(aes(ymin =mean_nmi-sd_nmi, ymax = mean_nmi + sd_nmi, color = outliers), linewidth = 2, alpha = 0.5)+
+  #geom_hline(yintercept = 0.5)+
+  geom_vline(xintercept = 0.5)+
+  ylim(0,1)+  guides(fill="none") +
+  labs(title = "", y = "NMI", x = "mixing parameter") +
+  theme_light()  +theme (legend.position="none")
+
+p2 <- summary_n_trials_cons %>% rename(outliers = method) %>%
+  group_by(outliers, mu) %>%  
+  summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
+    ggplot(aes(x = mu, y = mean_nc)) +
+  geom_line(aes(color = outliers)) +
+  geom_point(aes(color = outliers)) +
+    
+  geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = outliers), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 1)+
+  geom_vline(xintercept = 0.5)+
+ 
+  labs(title = "", y = "C/C0", x = "mixing parameter") +
+  theme_light() 
+
+
+
+
+  
+
+```
+
+```{r}
+#
+grid.arrange(p1 , 
+              p2 , 
+              ncol = 2, widths=c(1,1.4) , heights= c(1,1), top = "walktrap")  
+```
+
+ 

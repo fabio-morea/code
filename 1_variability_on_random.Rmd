@@ -1,0 +1,475 @@
+---
+title: "variablity on random networks"
+author: "Fabio Morea"
+date: "2023-065-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(aricode) # NMI 
+source('functions_graph_analysis.r')
+```
+
+```{r}
+g<-as.undirected(read.graph('benchmark/random/random_500_0.1.gml', format='gml'))
+
+comms <- find_communities (g, method = 'ML')
+V(g)$community <- comms$membership
+print(paste('Number of communities: ', max(comms$membership)))
+print("distribution of community size")
+table(table(comms$membership))
+
+
+gdf<-as_long_data_frame(g) 
+gdf$inter_comm <- (gdf$from_community != gdf$to_community)
+inter_community_links <- sum(gdf$w[ gdf$inter_comm == TRUE]) 
+mu = sum(inter_community_links) / sum(gdf$w)
+print(paste("Mixing parameter ",mu))
+```
+```{r}
+
+comms <- find_communities (g, method = 'LP')
+V(g)$community <- comms$membership
+print(paste('Number of communities: ', max(comms$membership)))
+print("distribution of community size")
+table(table(comms$membership))
+
+
+gdf<-as_long_data_frame(g) 
+gdf$inter_comm <- (gdf$from_community != gdf$to_community)
+inter_community_links <- sum(gdf$w[ gdf$inter_comm == TRUE]) 
+mu = sum(inter_community_links) / sum(gdf$w)
+print(paste("Mixing parameter ",mu))
+```
+
+```{r}
+
+comms <- find_communities (g, method = 'WT')
+V(g)$community <- comms$membership
+print(paste('Number of communities: ', max(comms$membership)))
+print("distribution of community size")
+table(table(comms$membership))
+
+
+gdf<-as_long_data_frame(g) 
+gdf$inter_comm <- (gdf$from_community != gdf$to_community)
+inter_community_links <- sum(gdf$w[ gdf$inter_comm == TRUE]) 
+mu = sum(inter_community_links) / sum(gdf$w)
+print(paste("Mixing parameter ",mu))
+```
+
+
+```{r}
+
+comms <- find_communities (g, method = 'IM')
+V(g)$community <- comms$membership
+print(paste('Number of communities: ', max(comms$membership)))
+print("distribution of community size")
+table(table(comms$membership))
+
+
+gdf<-as_long_data_frame(g) 
+gdf$inter_comm <- (gdf$from_community != gdf$to_community)
+inter_community_links <- sum(gdf$w[ gdf$inter_comm == TRUE]) 
+mu = sum(inter_community_links) / sum(gdf$w)
+print(paste("Mixing parameter ",mu))
+```
+
+
+```{r}
+
+comms <- find_communities (g, method = 'LV')
+V(g)$community <- comms$membership
+print(paste('Number of communities: ', max(comms$membership)))
+print("distribution of community size")
+table(table(comms$membership))
+
+
+gdf<-as_long_data_frame(g) 
+gdf$inter_comm <- (gdf$from_community != gdf$to_community)
+inter_community_links <- sum(gdf$w[ gdf$inter_comm == TRUE]) 
+mu = sum(inter_community_links) / sum(gdf$w)
+print(paste("Mixing parameter ",mu))
+```
+
+
+```{r}
+find_communities_N_times <- function(n_trials,
+                                     methods,
+                                     mu_values,
+                                     filename_summary,
+                                     filename_membership) {
+    results_n_trials <- data.frame()
+    membership_matrix <- c()
+
+        for (i in 1:n_trials) {
+            for (met in methods) {
+                tmp_comms <- find_communities(g, method = met)
+                V(g)$community <- tmp_comms$membership
+                results_single <- analyse_communities(g, tmp_comms)
+                results_n_trials = rbind(results_n_trials, results_single)
+                membership_matrix <- cbind(membership_matrix, tmp_comms$membership)
+            }
+        }
+    
+    membership_n_trials <- data.frame(membership_matrix)
+    membership_n_trials %>% write_csv(filename_membership)
+    results_n_trials %>% write_csv(filename_summary)
+    return(1)
+}
+ 
+```
+
+
+```{r}
+g<-as.undirected(read.graph('benchmark/random/random_500_0.5.gml', format='gml'))
+
+mts <- c( "IM", "LP", "ML", "WT")
+
+find_communities_N_times (g, 
+                          n_trials=50,
+                          methods=mts,
+                          filename_summary = 'random_05_n_trials_summary_results.csv',
+                          filename_membership = 'random_05_n_trials_membership.csv')
+
+
+membership_matrix <- as.matrix(read_csv('random_05_n_trials_membership.csv'))
+nmis <- data.frame()
+
+membership_matrix_mu <- membership_matrix
+mts <- c( "IM", "LP", "ML", "WT")
+for (met1 in 1:length(mts)) {
+  for (met2 in 1:length(mts)) {
+    if (met1 != met2) {
+      mm1 <- mts[met1]
+      mm2 <- mts[met2]
+      mb1 <- membership_matrix_mu[, mts == mm1]
+      mb2 <- membership_matrix_mu[, mts == mm2]
+      for (i in 1:ncol(mb1)) {
+        for (j in i:ncol(mb2)) {
+          if (i != j) {
+            nmi_m1_m2 <- aricode::NMI(mb1[, i], mb2[, j])
+            nmis <- rbind(nmis, data.frame(mm1, mm2, met1, met2, nmi_m1_m2))
+          }
+        }
+      }
+    }
+  }
+}
+
+nmis %>% write_csv('random_05_NMIs.csv')
+```
+
+
+Ecco i risultati su un random graph:
+ ```{r}
+results_n_trials <- read_csv('random_n_trials_summary_results.csv')
+p0 <- results_n_trials %>% 
+    filter(method %in% c('ML','WT', 'LP', 'IM')) %>%
+    ggplot(aes(x= nc, y=mu, color = method, shape = method))+
+    geom_point(size = 3, alpha = 0.3) + theme_minimal() +
+        geom_smooth(aes(color = method))+
+
+    geom_hline(yintercept = 0.5, color = 'red')+
+    geom_vline(xintercept = 1.0, color = 'red')+
+    ylim(0,1)+xlim(0,12)+
+    ggtitle("number of communities - empirical mu for random networks")
+p0
+```
+
+
+
+
+ ```{r}
+nmis <- read_csv('random_NMIs.csv')
+selected_methods <- c(  "ML", "WT")
+
+p1<-nmis  %>% 
+    mutate(NMI = nmi_m1_m2)%>%
+    mutate(method1 = mm1)%>%
+    mutate(method2 = mm2)%>%
+    
+    select(method1,method2,NMI) %>%
+    filter(method1 %in% selected_methods) %>%
+    filter(method2 %in% selected_methods) %>%
+    
+    group_by(method1)%>%
+    ggplot(aes(x=method1, y=NMI, color=method2))+
+    geom_boxplot( ) + theme_minimal() + ylim(0,1)
+    ggtitle("comparison of communities detected by different methods; NMI")
+
+p1
+```
+ 
+The network is random, yet all algorithms do find a set of communities, with NMI close to zero 
+the number of communities may be either 1 or small (in some cases also a large number of singletons ) 
+ 
+ ```{r} 
+results_n_trials <- read_csv('random_n_trials_summary_results.csv')
+p2 <- results_n_trials %>% 
+    filter(method %in% selected_methods) %>%
+    ggplot(aes(x= method, y=mu))+
+    ylim(0,1)+ 
+    geom_hline(yintercept = 0.5, color = 'red')+
+    geom_boxplot() + theme_minimal() +
+    ggtitle("empirical mixing parameter")
+p2
+```
+
+ ```{r}
+png(filename="../figures/fig3.png",width = 30, height = 15, res = 300, units = "cm")
+grid.arrange(p1, p2, ncol = 2)
+dev.off()
+```
+```{r}
+g<-as.undirected(read.graph('benchmark/ring_of_cliques/ring_of_cliques_5_20_B_C.gml', format='gml'))
+mts <- c( "IM", "LP", "ML", "WT")
+
+find_communities_N_times (g, 
+                          n_trials=10,
+                          methods=mts,
+                          filename_summary = 'roc520_n_trials_summary_results.csv',
+                          filename_membership = 'roc520_n_trials_membership.csv')
+membership_matrix <- as.matrix(read_csv('roc520_n_trials_membership.csv'))
+nmis <- data.frame()
+
+membership_matrix_mu <- membership_matrix
+mts <- c( "IM", "LP", "ML", "WT")
+for (met1 in 1:length(mts)) {
+  for (met2 in 1:length(mts)) {
+    if (met1 != met2) {
+      mm1 <- mts[met1]
+      mm2 <- mts[met2]
+      mb1 <- membership_matrix_mu[, mts == mm1]
+      mb2 <- membership_matrix_mu[, mts == mm2]
+      for (i in 1:ncol(mb1)) {
+        for (j in i:ncol(mb2)) {
+          if (i != j) {
+            nmi_m1_m2 <- aricode::NMI(mb1[, i], mb2[, j])
+            nmis <- rbind(nmis, data.frame(mm1, mm2, met1, met2, nmi_m1_m2))
+          }
+        }
+      }
+    }
+  }
+}
+
+nmis %>% write_csv('roc520_NMIs.csv')
+
+```
+
+
+
+```{r}
+g<-as.undirected(read.graph('benchmark/ring_of_cliques/ring_of_cliques_5_20_B_C.gml', format='gml'))
+mts <- c( "IM", "LP", "ML", "WT")
+
+find_communities_N_times (g, 
+                          n_trials=10,
+                          methods=mts,
+                          filename_summary = 'roc520_n_trials_summary_results.csv',
+                          filename_membership = 'roc520_n_trials_membership.csv')
+membership_matrix <- as.matrix(read_csv('roc520_n_trials_membership.csv'))
+nmis <- data.frame()
+
+membership_matrix_mu <- membership_matrix
+mts <- c( "IM", "LP", "ML", "WT")
+for (met1 in 1:length(mts)) {
+  for (met2 in 1:length(mts)) {
+    if (met1 != met2) {
+      mm1 <- mts[met1]
+      mm2 <- mts[met2]
+      mb1 <- membership_matrix_mu[, mts == mm1]
+      mb2 <- membership_matrix_mu[, mts == mm2]
+      for (i in 1:ncol(mb1)) {
+        for (j in i:ncol(mb2)) {
+          if (i != j) {
+            nmi_m1_m2 <- aricode::NMI(mb1[, i], mb2[, j])
+            nmis <- rbind(nmis, data.frame(mm1, mm2, met1, met2, nmi_m1_m2))
+          }
+        }
+      }
+    }
+  }
+}
+
+nmis %>% write_csv('roc520_NMIs.csv')
+
+```
+
+
+```{r}
+g<-as.undirected(read.graph('benchmark/ring_of_cliques/ring_of_cliques_8_10_B_C.gml', format='gml'))
+mts <- c( "IM", "LP", "ML", "WT")
+
+find_communities_N_times (g, 
+                          n_trials=10,
+                          methods=mts,
+                          filename_summary = 'roc810_n_trials_summary_results.csv',
+                          filename_membership = 'roc810_n_trials_membership.csv')
+membership_matrix <- as.matrix(read_csv('roc810_n_trials_membership.csv'))
+nmis <- data.frame()
+
+membership_matrix_mu <- membership_matrix
+mts <- c( "IM", "LP", "ML", "WT")
+for (met1 in 1:length(mts)) {
+  for (met2 in 1:length(mts)) {
+    if (met1 != met2) {
+      mm1 <- mts[met1]
+      mm2 <- mts[met2]
+      mb1 <- membership_matrix_mu[, mts == mm1]
+      mb2 <- membership_matrix_mu[, mts == mm2]
+      for (i in 1:ncol(mb1)) {
+        for (j in i:ncol(mb2)) {
+          if (i != j) {
+            nmi_m1_m2 <- aricode::NMI(mb1[, i], mb2[, j])
+            nmis <- rbind(nmis, data.frame(mm1, mm2, met1, met2, nmi_m1_m2))
+          }
+        }
+      }
+    }
+  }
+}
+
+nmis %>% write_csv('roc810_NMIs.csv')
+
+```
+```{r}
+
+g<-as.undirected(read.graph('benchmark/ring_of_cliques/ring_of_cliques_4_6_C_B.gml', format='gml'))
+mts <- c( "IM", "LP", "ML", "WT")
+
+find_communities_N_times (g, 
+                          n_trials=10,
+                          methods=mts,
+                          filename_summary = 'roc46_n_trials_summary_results.csv',
+                          filename_membership = 'roc46_n_trials_membership.csv')
+membership_matrix <- as.matrix(read_csv('roc810_n_trials_membership.csv'))
+nmis <- data.frame()
+
+membership_matrix_mu <- membership_matrix
+mts <- c( "IM", "LP", "ML", "WT")
+for (met1 in 1:length(mts)) {
+  for (met2 in 1:length(mts)) {
+    if (met1 != met2) {
+      mm1 <- mts[met1]
+      mm2 <- mts[met2]
+      mb1 <- membership_matrix_mu[, mts == mm1]
+      mb2 <- membership_matrix_mu[, mts == mm2]
+      for (i in 1:ncol(mb1)) {
+        for (j in i:ncol(mb2)) {
+          if (i != j) {
+            nmi_m1_m2 <- aricode::NMI(mb1[, i], mb2[, j])
+            nmis <- rbind(nmis, data.frame(mm1, mm2, met1, met2, nmi_m1_m2))
+          }
+        }
+      }
+    }
+  }
+}
+
+nmis %>% write_csv('roc46_NMIs.csv')
+
+```
+
+
+```{r}
+results_n_trials <- read_csv('random_n_trials_summary_results.csv')
+results_n_trials$graph <-'random_01'
+
+tmp0 <- read_csv('random_05_n_trials_summary_results.csv')
+tmp0$graph <-'random_05'
+
+tmp1 <- read_csv('roc46_n_trials_summary_results.csv')  
+tmp1$graph <-'ring of cliques 4-6'
+
+tmp2 <- read_csv('roc520_n_trials_summary_results.csv')
+tmp2$graph <-'ring of cliques 5-20'
+
+tmp3 <- read_csv('roc810_n_trials_summary_results.csv')  
+tmp3$graph <-'ring of cliques 8-10'
+
+results_n_trials <- rbind(results_n_trials, tmp0, tmp1,tmp2,tmp3)
+```
+
+
+```{r}
+
+p0 <- results_n_trials %>% 
+    filter(nc<10) %>%
+    ggplot(aes(x= mu, y=nc, color = graph , shape = method))+
+    geom_rect( aes(NULL, NULL, ymin = 1 , ymax = 10, xmin = 0.5, xmax = 1.0 ), color = NA, fill = "lightyellow")+
+    geom_rect( aes(NULL, NULL, ymin = .1 , ymax = 1.5, xmin = 0.0, xmax = 1 ), color = NA, fill = "lightyellow")+
+    geom_vline(xintercept = 0.5, color = 'red', linetype = "dashed", size = 0.5)+
+    geom_vline(xintercept = 0.0, color = 'black', linetype = "solid", size = 0.5)+
+    geom_hline(yintercept = 1.0, color = 'red', size = 1)+
+    ylim(0,12)+xlim(0,1)+
+    scale_y_continuous(breaks=seq(1,10,2))+
+
+    geom_point( size = 4, alpha = 1, stroke = 1.5) + 
+    scale_color_manual(values = c("orange", 'brown', "blue","cyan3","cornflowerblue") )+
+
+    scale_shape_manual(values = c(1,4,5,3))+
+    theme_minimal() +
+    annotate(geom = 'text', label = 'fuzziness threshold', x = 0.5, y =3, hjust = 0, vjust = 1, color = 'red', angle = 90)+
+    ylab("number of communities")+xlab("empirical mixing parameter")+
+    theme(aspect.ratio=.6)
+p0
+```
+
+
+```{r}
+nmis <- read_csv('roc_NMIs.csv')
+selected_methods <- c(  "ML", "WT")
+
+p1<-nmis  %>% 
+    mutate(NMI = nmi_m1_m2)%>%
+    mutate(method1 = mm1)%>%
+    mutate(method2 = mm2)%>%
+    
+    select(method1,method2,NMI) %>%
+    filter(method1 %in% selected_methods) %>%
+    filter(method2 %in% selected_methods) %>%
+    
+    group_by(method1)%>%
+    ggplot(aes(x=method1, y=NMI, color=method2))+
+    geom_boxplot( ) + theme_minimal() + ylim(0,1)
+    ggtitle("comparison of communities detected by different methods; NMI")
+
+p1
+```
+
+```{r}
+latex_table_center <- table_center %>% kable(digits = 2, format = "latex", caption = "Relative frequency of membership labels", table.envir = "table*")
+cat(latex_table_center,  file = 'table1.tex')
+```
+
+ 
+
+ 
+
+```{r}
+table_nc <- results %>% 
+    mutate(algorithm = method)%>% select(-method)%>%
+    group_by(algorithm, nc) %>%
+  summarise(n = n()) %>%
+  mutate(freq =  (n / sum(n))) %>%
+    
+    select(-n)%>%
+    arrange(nc)%>%
+    pivot_wider(names_from = nc, values_from = freq, values_fill = 0.00) 
+
+print(table_nc)
+```
+
+

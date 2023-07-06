@@ -1,0 +1,138 @@
+---
+title: "Untitled"
+author: "Fabio Morea"
+date: "2023-07-05"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(aricode) # NMI 
+source('./functions_graph_analysis.R')
+```
+
+# LFR 30: subgraph and distribution of gamma
+
+```{r}
+g<-read_graph('./benchmark/LFR/LFR_benchmark_30.gml', format = 'gml')
+E(g)$weight <- 1
+E(g)$w <-1
+
+method <- 'LP'
+
+V(g)$community <- fastgreedy.community(g)$membership
+membership_matrix <- find_communities_N_times (g,
+                          n_trials=100,
+                          methods=c(method), 
+                          filename_summary = '',
+                          filename_membership = '')
+
+```
+
+```{r}
+gamma_lim <- 0.1
+cons_communities <- consensus(membership_matrix, gamma_lim = gamma_lim)
+cons_communities$membership [cons_communities$gamma < gamma_lim] <- 0
+V(g)$community<- as.factor(cons_communities$membership)
+V(g)$gamma <-  cons_communities$gamma
+
+results <- analyse_communities(g, cons_communities, verbose = TRUE)
+
+
+```
+
+
+```{r}
+cols1 <- c("yellow", "orange", "lightblue", "green", "white")[as.factor(membership(cons_communities))]
+
+plot(cons_communities,g, layout = layout.fruchterman.reingold, 
+     vertex.label = NA ,  
+     col =cols1,
+     mark.border =adjustcolor("black", .8), 
+     mark.col    =adjustcolor("lightgray", .2))
+
+```
+
+```{r}
+plot(g, vertex.color = (cons_communities$gamma), 
+     vertex.label = if_else(cons_communities$gamma<1,as.character(cons_communities$gamma),''))
+plot(g, 
+     vertex.size = 30,
+     vertex.color = cons_communities$membership, 
+     vertex.label = round(cons_communities$gamma,1))
+
+```
+
+```{r}
+
+ 
+gc <- make_community_network(g)
+giant_component <- which.max(components(gc)$csize) 
+gc <- induced.subgraph(gc, components(gc)$membership == giant_component)
+
+gc<-igraph::simplify(gc)
+cols4 <- c("yellow", "orange", "lightblue", "green", "white")[as.factor(V(gc)$name)]
+plot(gc, layout = layout.graphopt,
+    vertex.size = V(gc)$size*.2, 
+    vertex.shape = "square", 
+    vertex.color = cols4,
+    vertex.label = NA,#V(gc)$size, 
+    vertex.label.dist=0.0,
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(gc), "lightgray", "black"),
+    edge.width = E(gc)$weight
+    )
+
+V(g)[V(g)$gamma<0.4]
+V(g)$name<- V(g)$id
+
+selected_node_name <- 19
+gg<-induced.subgraph(g, find_neighbours(g, node <- selected_node_name, order = 2))
+plot(gg, vertex.color = V(gg)$gamma)
+
+```
+
+```{r}
+#make a gamma creness graph
+df <- data.frame(name = V(g)$name, gamma = V(g)$gamma, coreness = coreness(g))
+sp <- df[ df$gamma <= 0.6 , ]$name
+df[ df$gamma <= 0.5 , ]
+sp
+
+df %>% ggplot( aes(x=coreness, y = gamma) ) +
+  geom_point(shape = 21, size = 4, alpha = 0.5, fill = if_else(V(g)$name %in% sp, "red", "blue"))+ theme_light()
+
+```
+
+```{r}
+for (sn in sp[1:50]){
+  selected_node_name <- sn
+  nbs <- find_neighbours(g, node  =  selected_node_name, order = 2)
+  #nb_coms <- unique(V(g)$community[ V(g)$name %in% nbs])
+  #gg<-induced.subgraph(g, V(g)$community %in% nb_coms )
+  gg<-induced.subgraph(g,  nbs )
+  
+  col = as.factor(V(gg)$community)
+  col[ V(gg)$name == sn ] <- "white" 
+  lab = V(gg)$gamma
+  lab[ V(gg)$name != sn] <- NA
+  
+  vs<-V(gg)$name
+  vs[ V(gg)$name != sn] <- 10
+  vs[ V(gg)$name == sn] <- 30
+  
+  print(length(vs))
+
+  plot(gg, vertex.color = col, 
+       vertex.size = vs,
+       vertex.label = lab, layout = layout.graphopt)
+}
+
+```

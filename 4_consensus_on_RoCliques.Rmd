@@ -1,0 +1,640 @@
+---
+title: "variablity on R of Cliques"
+author: "Fabio Morea"
+date: "2023-065-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(aricode) # NMI 
+source('./functions_graph_analysis.R')
+```
+
+this is our benchmakrk network
+
+```{r}
+getwd()
+g<-read_graph('./benchmark/ring_of_cliques/ring_of_cliques_4_6_C_B.gml', format = 'gml')
+V(g)$name = seq(1,vcount(g))
+shuffled_ids <- sample(vcount(g))
+g <- permute.vertices(g, shuffled_ids)
+
+ 
+
+layout = layout_with_kk(g)
+plot(g, layout = layout)
+```
+
+**Some nodes are relevant because they are connected to many other
+nodes. For example a person that is in contact with everyone else, a
+central node or a pivot node. It has high centrality, high coreness,
+high degree. and possibily LOW GAMMA, it is uncertain to attach it to a
+specific community**
+
+compare it with "betweenness centrality" (not with "closeness centrality")
+High betwenness centrality is correlated with low gamma?
+high betwenness centrality means that the node is important in connecting other nodes in the network
+if the "Pivot" node was missing, then the distance between other nodes would suddenl icrease.
+
+there
+ 
+
+
+```{r}
+membership_matrix <- find_communities_N_times (g,
+                          n_trials=30,
+                          methods=c('IM','ML','LP','FG','LV' ,'WT'),
+                          filename_summary = 'ROC_n_trials_summary_results.csv',
+                          filename_membership = 'ROC_n_trials_membership.csv')
+```
+
+ 
+
+########## neighborhood of a graph
+
+```{r}
+
+
+find_neighbours <- function(g, node_name, order) {
+  selected_node_id <- which(V(g)$name == selected_node_name)
+  list_neis <- ego(g, order = order, selected_node_id)
+  nei_ids <- c()
+  for (nn in list_neis) {
+    for (x in nn) {
+      nei_ids <- append(nei_ids, x)
+    }
+  }
+  nei_ids <- c(nei_ids, selected_node_id)
+  nei_ids <- unique(nei_ids)
+  return(nei_ids)
+}
+
+
+```
+
+
+```{r}
+
+g<-read_graph('./benchmark/ring_of_cliques/ring_of_cliques_4_6_C_B.gml', format = 'gml')
+V(g)$name <- V(g)$id
+selected_node_name <- 3
+gg<-induced.subgraph(g, find_neighbours(g, node <- selected_node_name, order = 2))
+plot(gg, vertex.color = as.factor(V(gg)$community))
+```
+
+
+
+
+
+```{r}
+selected_node_name <- 27
+gg<-induced.subgraph(g, find_neighbours(g, node <- selected_node_name, order = 2))
+plot(gg, vertex.color = as.factor(V(gg)$community))
+```
+ 
+
+
+# How to deal with outliers:
+
+## 1 first approach outliers are aggregated to a community
+we just set gamma_lim near zero
+
+
+ 
+```{r}
+method<-'ML'
+membership_matrix <- find_communities_N_times (g,
+                          n_trials=100,
+                          methods=c(method), 
+                          filename_summary = '',
+                          filename_membership = '')
+
+cons_communities <- consensus(membership_matrix, gamma_lim = 0.2)
+V(g)$community<- as.factor(cons_communities$membership)
+V(g)$gamma <-  cons_communities$gamma
+
+results <- analyse_communities(g, cons_communities, verbose = TRUE)
+
+cols1 <- c("yellow", "orange", "lightblue", "green", "white")[as.factor(membership(cons_communities))]
+
+plot(cons_communities,g, layout = layout, 
+     vertex.label = NA ,  
+     col =cols1,
+     mark.border =adjustcolor("black", .8), 
+     mark.col    =adjustcolor("lightgray", .2))
+
+p1_comms<-cons_communities
+p1_g<-g
+
+
+plot(g, vertex.color = (cons_communities$gamma), 
+     vertex.label = if_else(cons_communities$gamma<1,as.character(cons_communities$gamma),''))
+plot(g, 
+     vertex.size = 30,
+     vertex.color = cons_communities$membership, 
+     vertex.label = round(cons_communities$gamma,1))
+
+table(cons_communities$membership)
+
+hist(cons_communities$gamma)
+table(cons_communities$gamma)
+```
+```{r}
+gc <- make_community_network(g)
+gc<-igraph::simplify(gc)
+cols4 <- c("yellow", "orange", "lightblue", "green", "white")[as.factor(V(gc)$name)]
+plot(gc, 
+    vertex.size = V(gc)$size*4, 
+    vertex.shape = "square", 
+    vertex.color = cols4,
+    vertex.label = NA,#V(gc)$size, 
+    vertex.label.dist=0.0,
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(gc), "lightgray", "black"),
+    edge.width = E(gc)$weight
+    )
+
+p4_gc <- gc
+
+
+```
+
+## 2 secondo approach: outliers are highlighted as single-node communities
+we set gamma_lim above 0.5, as high as 0.0 or 1.0: 
+in this case single-node communities are assigned
+
+```{r}
+
+method<-'ML'
+
+membership_matrix <- find_communities_N_times (g,
+                          n_trials=100,
+                          methods=c(method), 
+                          filename_summary = '',
+                          filename_membership = '')
+
+ 
+cons_communities <- consensus(membership_matrix, gamma_lim = 0.9)
+V(g)$community<- cons_communities$membership
+
+results <- analyse_communities(g, cons_communities, verbose = TRUE)
+
+cols2 <- c("yellow", "orange", "brown", "lightblue",  "gray", "green",   "darkorchid2", "pink", "lightblue")[as.factor(membership(cons_communities))]
+
+plot(cons_communities,g, layout = layout, 
+     vertex.label = NA ,  
+     col =cols2,
+     mark.border =adjustcolor("black", .8), 
+     mark.col    =adjustcolor("lightgray", .2))
+
+p2_comms<-cons_communities
+p2_g<-g
+
+plot(g, vertex.color = (cons_communities$gamma), 
+     vertex.label = if_else(cons_communities$gamma<1,as.character(cons_communities$gamma),' '))
+plot(g, 
+     vertex.size = 30,
+     vertex.color = cons_communities$membership, 
+     vertex.label = round(cons_communities$gamma,1))
+
+table(cons_communities$membership)
+
+hist(cons_communities$gamma)
+table(cons_communities$gamma)
+```
+```{r}
+gc <- make_community_network(g)
+gc<-igraph::simplify(gc)
+cols5 <- c("yellow", "orange", "brown", "lightblue",  "gray", "green",   "darkorchid2", "pink", "blue")
+
+plot(gc, 
+    vertex.size = V(gc)$size*10, 
+    vertex.shape = "square", 
+    vertex.color = cols5,
+    vertex.label = NA,#V(gc)$size, 
+    vertex.label.dist=0.0,
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(gc), "lightgray", "black"),
+    edge.width = E(gc)$weight
+    )
+ 
+p5_gc <- gc
+
+```
+ 
+## 3 third case: outliers are de-focused. we set a higm gamma_lim AND aggregate community labels below gamma_lim to "community zero"
+ 
+```{r}
+ 
+method<-'ML'
+
+membership_matrix <- find_communities_N_times (g,
+                          n_trials=100,
+                          methods=c(method), 
+                          filename_summary = '',
+                          filename_membership = '')
+
+ 
+cons_communities <- consensus(membership_matrix, gamma_lim = 0.9)
+
+#make community zero #############################################
+cons_communities$membership [cons_communities$gamma < 0.9] <- 0
+V(g)$community <- cons_communities$membership
+###################################################################
+
+cons_communities$membership <- as.numeric(cons_communities$membership)
+results <- analyse_communities(g, cons_communities, verbose = TRUE)
+
+cols3 <- c("white", "yellow", "orange", "lightblue", "green")[as.factor(membership(cons_communities))]
+
+
+plot(cons_communities,g, layout = layout, 
+     vertex.label = NA ,  
+     col =cols3,
+     mark.border = if_else(c(T,F,F,F,F) , adjustcolor("white", 0.0), adjustcolor("black", .8)), 
+     mark.col    = if_else(c(T,F,F,F,F) , adjustcolor("white", 0.0), adjustcolor("lightgray", .2)))
+
+p3_comms<-cons_communities
+p3_g<-g
+
+plot(g, vertex.color = (cons_communities$gamma), 
+     vertex.label = if_else(cons_communities$gamma<1,as.character(cons_communities$gamma),''))
+
+plot(g, 
+     vertex.size = 30,
+     vertex.color = cons_communities$membership, 
+     vertex.label = round(cons_communities$gamma,1))
+
+table(cons_communities$membership)
+
+hist(cons_communities$gamma)
+table(cons_communities$gamma)
+```
+
+ 
+ # analyse the same results as a network of communities
+```{r}
+
+gc <- make_community_network(g)
+gc<-igraph::simplify(gc)
+col6<-c("white", "yellow", "orange", "lightblue", "green")
+plot(gc, 
+    vertex.size = V(gc)$size*10, 
+    vertex.shape = "square", 
+    vertex.color = col6,
+    vertex.label = NA, 
+    vertex.label.dist=0.0,
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(gc), "lightgray", "black"),
+    edge.width = E(gc)$weight
+    )
+
+p6_gc<-gc
+ 
+```
+ 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ in una network casuale trovo delle comunità
+ con il consensus vedo che 
+ 1) sono singleton
+ 2) gamma è molto basso
+ 
+ il mixing factor globale è alto ma insensato: i singleton non vanno interpretati così
+ 
+ 
+ 
+```{r}
+g<-as.undirected(read.graph('benchmark/random/random_100_0.5.gml', format='gml'))
+V(g)$name<-V(g)$id
+V(g)$w<-1
+V(g)$community<-1
+ 
+
+method<-'ML'
+
+mp_comms <- find_communities(g, method = method)
+
+membership_matrix <- find_communities_N_times (g,
+                          n_trials=50,
+                          methods=c(method),#''IM', ML','LP','FG','LV' ,'WT'),
+                          filename_summary = 'ROC_n_trials_summary_results.csv',
+                          filename_membership = 'ROC_n_trials_membership.csv')
+
+ 
+cons_results <- consensus(membership_matrix, gamma_lim = 0.5)
+V(g)$community<-cons_results$membership
+V(g)$gamma<-cons_results$gamma
+
+
+    gdf<-as_long_data_frame(g) 
+    gdf$inter_comm <- (gdf$from_community != gdf$to_community)
+    inter_community_links <- sum(gdf$w[ gdf$inter_comm == TRUE]) 
+    mu = sum(inter_community_links) / sum(gdf$w)
+ print(mu)
+ 
+#make a community object
+cons_communities <- make_clusters(g, array(as.numeric(cons_results$membership)))
+cons_communities$algorithm <- paste0(method,"_cons")
+cons_communities$gamma<-cons_results$gamma
+results <- analyse_communities(g, cons_communities, verbose = TRUE)
+plot(cons_communities,g, vertex.label = NA)
+
+plot(g, vertex.color = (cons_communities$gamma), 
+     vertex.label = if_else(cons_communities$gamma<1,as.character(cons_communities$gamma),''))
+plot(g, vertex.color = cons_communities$membership, vertex.label = cons_communities$membership)
+
+#table(cons_communities$membership)
+#hist(cons_communities$gamma)
+ #table(cons_communities$gamma)
+```
+
+ ```{r}
+gc <- make_community_network(g, plot = TRUE)
+
+plot(gc, 
+    vertex.size = comms$size*4, 
+    vertex.shape = "square", 
+    vertex.color = V(gc)$name,
+    vertex.label = comms$size, 
+    vertex.label.dist=0.0,
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(gc), "lightgray", "black"),
+    edge.width = E(gc)$weight/2
+    )
+ 
+```
+
+
+ 
+ 
+ 
+```{r}
+g<-as.undirected(read.graph('benchmark/LFR/LFR_benchmark_20.gml', format='gml'))
+V(g)$name<-V(g)$id
+E(g)$w<-1
+#V(g)$community
+
+method<-'ML'
+
+mp_comms <- find_communities(g, method = method)
+
+membership_matrix <- find_communities_N_times (g,
+                          n_trials=10,
+                          methods=c(method),#''IM', ML','LP','FG','LV' ,'WT'),
+                          filename_summary = 'ROC_n_trials_summary_results.csv',
+                          filename_membership = 'ROC_n_trials_membership.csv')
+
+ 
+cons_communities <- consensus(membership_matrix, gamma_lim = 0.9)
+
+#make community zero #############################################
+cons_communities$membership [cons_communities$gamma <= 0.9] <- 0
+V(g)$community <- cons_communities$membership
+V(g)$gamma <- cons_communities$gamma
+###################################################################
+
+cons_communities$membership <- as.numeric(cons_communities$membership)
+results <- analyse_communities(g, cons_communities, verbose = TRUE)
+plot(cons_communities,g, vertex.label = NA)
+
+plot(g, vertex.color = (cons_communities$gamma), 
+     vertex.label = if_else(cons_communities$gamma<1,as.character(cons_communities$gamma),''))
+
+plot(g, 
+     vertex.size = 30,
+     vertex.color = cons_communities$membership, 
+     vertex.label = round(cons_communities$gamma,1))
+
+table(cons_communities$membership)
+
+hist(cons_communities$gamma)
+table(cons_communities$gamma)
+```
+
+
+
+```{r}
+which(V(g)$gamma <0.8)
+selected_node_name <- 244
+selected_node_id <- which(V(g)$name == selected_node_name)
+list_neis<- ego(g, order = 2, selected_node_id)
+nei_ids<- c()
+for (nn in list_neis){
+  for (x in nn){
+    nei_ids <- append(nei_ids, x)
+  }
+}
+nei_ids <- c(nei_ids, selected_node_id)
+nei_ids <- unique(nei_ids)
+gg<-induced.subgraph(g, nei_ids)
+plot(gg, vertex.color = V(gg)$community, vertex.label = V(gg)$id)
+```
+
+
+
+```{r}
+gc <- make_community_network(g, plot = TRUE)
+giant_component <- which.max(components(gc)$csize) 
+gc1 <- induced.subgraph(gc, components(gc)$membership == giant_component)
+
+plot(gc1, layout = layout.graphopt(gc1),
+    vertex.size = V(gc)$size/3, 
+    vertex.shape = "square", 
+    vertex.color = V(gc)$name,
+    vertex.label = V(gc)$size, 
+    vertex.label.dist=0.0,
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(gc), "lightgray", "lightgray"),
+    edge.width = E(gc)$weight/20
+    )
+
+
+plot(gc1, layout = layout.graphopt(gc1),
+    vertex.size = V(gc)$size/3, 
+    vertex.shape = "square", 
+    vertex.color = V(gc)$name,
+    vertex.label = NA,#V(gc)$name, 
+    vertex.label.dist=0.0,
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(gc), "lightgray", "lightgray"),
+    edge.width = E(gc)$weight/20
+    )
+ 
+```
+
+
+ 
+
+
+```{r}
+selected_node_name <- 1
+selected_node_id <- which(V(g)$name == selected_node_name)
+list_neis<- ego(g, order = 2, selected_node_id)
+nei_ids<- c()
+for (nn in list_neis){
+  for (x in nn){
+    nei_ids <- append(nei_ids, x)
+  }
+}
+nei_ids <- c(nei_ids, selected_node_id)
+nei_ids <- unique(nei_ids)
+gg<-induced.subgraph(g, nei_ids)
+plot(gg, vertex.color = V(g)$community)
+```
+ 
+
+
+# FINAL PLOTS
+
+
+```{r}
+par(mfrow=c(2,3), mar=rep(1.0,4), oma=c(0,0,4,0))
+
+#1
+plot(p1_comms,p1_g, layout = layout, 
+     vertex.label = NA ,  
+     col =cols1,
+     mark.border =adjustcolor("black", .8), 
+     mark.col    =adjustcolor("lightgray", .2))
+mtext("incorporate", line=0, side=3, outer=FALSE, cex=1)
+mtext("network", line=0, side=1, outer=FALSE, cex=0.6)
+
+#2
+plot(p2_comms,p2_g, layout = layout, 
+     vertex.label = NA ,  
+     col =cols2,
+     mark.border =adjustcolor("black", .8), 
+     mark.col    =adjustcolor("lightgray", .2))
+mtext("highlight", line=0, side=3, outer=FALSE, cex=1)
+mtext("network", line=0, side=1, outer=FALSE, cex=0.6)
+
+
+#3
+plot(p3_comms,p3_g, layout = layout, 
+     vertex.label = NA ,  
+     col =cols3,
+     mark.border = if_else(c(T,F,F,F,F) , adjustcolor("white", 0.0), adjustcolor("black", .8)), 
+     mark.col    = if_else(c(T,F,F,F,F) , adjustcolor("white", 0.0), adjustcolor("lightgray", .2)))
+mtext("group", line=0, side=3, outer=FALSE, cex=1)
+mtext("network", line=0, side=1, outer=FALSE, cex=0.6)
+
+
+#4
+plot(p4_gc, 
+    vertex.size = V(p4_gc)$size*10, 
+    vertex.shape = "square", 
+    vertex.color = cols4,
+    vertex.label = V(p4_gc)$size, 
+    vertex.label.dist=0.0,
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(p4_gc), "lightgray", "black"),
+    edge.width = E(p4_gc)$weight
+    )
+mtext(" ", line=0, side=3, outer=FALSE, cex=1)
+mtext("communities", line=0, side=1, outer=FALSE, cex=0.6)
+
+
+#5
+plot(p5_gc, 
+    vertex.size = V(p5_gc)$size*10, 
+    vertex.shape = "square", 
+    vertex.color = cols5,
+    vertex.label = V(p5_gc)$size, 
+    vertex.label.dist=if_else(V(p5_gc)$size>1,0.0, 2.0),
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(p5_gc), "lightgray", "black"),
+    edge.width = E(p5_gc)$weight*2
+    )
+mtext(" ", line=0, side=3, outer=FALSE, cex=1)
+mtext("communities", line=0, side=1, outer=FALSE, cex=0.6)
+
+
+#6
+plot(p6_gc, 
+    vertex.size = V(p6_gc)$size*10, 
+    vertex.shape = "square", 
+    vertex.color = col6,
+    vertex.label = V(p6_gc)$size, 
+    vertex.label.dist=0.0,
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(p6_gc), "lightgray", "black"),
+    edge.width = E(p6_gc)$weight*2
+    )
+mtext(" ", line=0, side=3, outer=FALSE, cex=1)
+mtext("communities", line=0, side=1, outer=FALSE, cex=0.6)
+
+
+mtext("options for outliers", line=1, side=3, outer=TRUE, cex=1.5)
+
+
+```
+# Florentine
+```{r}
+library(netrankr)
+data("florentine_m")
+g<-florentine_m
+V(g)$id <- 1:vcount(g)
+E(g)$weight <- 1
+
+method <- 'ML'
+
+V(g)$community <- fastgreedy.community(g)$membership
+membership_matrix <- find_communities_N_times (g,
+                          n_trials=1000,
+                          methods=c(method), 
+                          filename_summary = '',
+                          filename_membership = '')
+
+cons_communities <- consensus(membership_matrix, gamma_lim = 0.2)
+V(g)$community<- as.factor(cons_communities$membership)
+V(g)$gamma <-  cons_communities$gamma
+
+results <- analyse_communities(g, cons_communities, verbose = TRUE)
+
+cols1 <- c("yellow", "orange", "lightblue", "green", "white")[as.factor(membership(cons_communities))]
+
+plot(cons_communities,g, layout = layout.fruchterman.reingold, 
+     vertex.label = NA ,  
+     col =cols1,
+     mark.border =adjustcolor("black", .8), 
+     mark.col    =adjustcolor("lightgray", .2))
+
+ 
+plot(g, vertex.color = (cons_communities$gamma), 
+     vertex.label = if_else(cons_communities$gamma<1,as.character(cons_communities$gamma),''))
+plot(g, 
+     vertex.size = 30,
+     vertex.color = cons_communities$membership, 
+     vertex.label = round(cons_communities$gamma,1))
+
+table(cons_communities$membership)
+
+hist(cons_communities$gamma)
+table(cons_communities$gamma)
+
+```
+

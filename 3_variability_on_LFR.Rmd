@@ -1,0 +1,741 @@
+---
+title: "variability of results on LFR"
+author: "Fabio Morea"
+date: "2023-06-24"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(aricode) # NMI 
+source('./functions_graph_analysis.R')
+
+```
+ 
+
+```{r}
+#getwd()
+g<-read_graph('./benchmark/LFR/LFR_benchmark_20.gml', format = 'gml')
+E(g)$w<-1.0
+empirical_mu(g)
+comms <- find_communities (g, method = 'ML')
+plot(comms,g)
+analyse_communities(g, comms , verbose = TRUE)
+```
+
+  
+ 
+
+```{r}
+find_communities_N_times (g, 
+                          n_trials=20,
+                          methods=c('IM','ML','LP','FG','LV' ,'WT'),
+                          filename_summary = 'n_trials_summary_results.csv',
+                          filename_membership = 'n_trials_membership.csv')
+```
+
+
+
+
+
+
+
+
+```{r compare all NMI, message=FALSE, warning=FALSE}
+membership_matrix <- as.matrix(read_csv('n_trials_membership.csv'))
+nmis <- data.frame()
+
+membership_matrix_mu <- membership_matrix
+mts <- c("FG", "IM", "LP", "ML", "WT")
+for (met1 in 1:length(mts)) {
+  for (met2 in 1:length(mts)) {
+    if (met1 != met2) {
+      mm1 <- mts[met1]
+      mm2 <- mts[met2]
+      mb1 <- membership_matrix_mu[, mts == mm1]
+      mb2 <- membership_matrix_mu[, mts == mm2]
+      #print(paste(mui,"calculating NMI between methods", met1, met2))
+      for (i in 1:ncol(mb1)) {
+        for (j in i:ncol(mb2)) {
+          if (i != j) {
+            nmi_m1_m2 <- aricode::NMI(mb1[, i], mb2[, j])
+            nmis <-
+              rbind(nmis, data.frame(mm1, mm2, met1, met2, nmi_m1_m2))
+          }
+        }
+      }
+    }
+  }
+}
+
+nmis %>% write_csv('NMIs.csv')
+```
+
+
+```{r}
+nmis <- read_csv('NMIs.csv')
+
+nmis %>% 
+  filter (mm1 == 'FG') %>%
+  ggplot( aes(nmi_m1_m2,  mm2)) + geom_boxplot() 
+```
+
+
+```{r}
+nmis %>% 
+  filter (mm1 == 'ML') %>%
+  ggplot( aes(nmi_m1_m2,  mm2)) + geom_boxplot() 
+```
+
+
+
+```{r}
+nmis %>% 
+  filter (mm1 == 'LP') %>%
+  ggplot( aes(nmi_m1_m2,  mm2)) + geom_boxplot() 
+```
+
+
+
+
+```{r}
+methods <- c('IM','ML','LP','FG','LV' ,'WT')
+ 
+ 
+```
+
+
+
+ 
+ 
+
+```{r}
+tmp_comms <- find_communities(g, method = "FG", verbose = FALSE)
+results <- analyse_communities(g, tmp_comms, verbose = TRUE)
+```
+
+# 1- introduction
+
+Network analysis is a powerful tool for understanding complex systems in
+both the hard and social sciences. By representing data as a network, it
+is possible to identify communities of similar members, or nodes, that
+are connected to each other by various relationships. This allows to
+gain insights into the structure of the system, as well as the behavior
+of the nodes within it.
+
+For example, in social networks, nodes can represent people, and the
+relationships between them can represent various types of interactions,
+such as friendships or collaborations. By analyzing the network,
+researchers can identify clusters of people who are more likely to
+interact with each other, or who share similar characteristics.
+
+Our research focuses on the need to identify communities within
+networks. This is an unsupervised task that presents several critical
+issues, such as selecting the most appropriate algorithm and quantifying
+the quality of the results.
+
+The *definition of community* depends on the research context; our
+research is based on the definition of community as a subset of nodes
+that are more strongly connected to each other than to the rest of the
+network.
+
+A number of *Community Detection* (CD) *algorithms* can be used to
+generate partitions of the network by exploiting its topology and
+possibly the weight of ties. These methods are widely known and
+implemented in programming languages such as R or Python, which enable
+the results to be obtained quickly on large networks.
+
+It is essential to recognize that the term 'community detection' can be
+misleading. **Communities are not an inherent property of the network**;
+rather, they are the outcome of an algorithm that is dependent on the
+characteristics of the network, the parameters chosen, and often an
+initial random seed.
+
+An algorithm always returns a results (i.e. a set of membership labels
+associated to vertices) but **it does not provide an explicit assessment
+of the quality of results**.
+
+The **results vary depending on the chosen algorithm**. for example
+under some circumstances an algoritm may find no communities (i.e.
+membership vector is an array of '1'), chile another algorithm may find
+a number of different communities. Moreover, results can also **vary at
+each repetition of a CD algorithm**. Differences can be small if
+communities are well-defined, but may also vary significantly if
+communities are fuzzy.
+
+We assume that in real world problems CD is an unsupervised task (i.e.
+there are no "true labels" against which results can be tested.
+Therefore it is not reccommended to take the first result generated by a
+chosen algorithm as the "true" or "only" solution.
+
+Our research focuses on assessing the quality of results produced by CD
+algorithms with respect to the 'fuzzyness' of a network. Specifically,
+we aim to assign each node not only with a *membership label* but also
+with a *Robustness of Membership* (RM) score. This allows us to gain
+insights into the overall quality of the community detection process and
+to classify nodes according to their RM We propose that an unsupervides
+CD task should be carried out in 3 steps:
+
+1- explorative analysis of the fuzzyness of the whole network 2- apply
+an appropriate CD algorithm (if fuzzyness is low) or a combination of
+algorithms and methods (e.g. aggregation, pre-cut and consensus, as
+describet below) 3- express results as "membership" and "robustness of
+membership" associated with each node.
+
+## Contents of this notebook
+
+This notebook addresses all the points mentioned above.
+
+Secion 2 is focused on building and exploring the properties of a family
+of benchmark networks. we add some comments on the modularity of
+built-in communities, and show the parameter \mu governing the fuzzyness
+of the network is proportional to modularity of built-in communities
+$Q_bic$.
+
+Section 3 compares five CD algorithms methods on single trials and
+Section 4 on repeated trials. Results are assessed using $Q_bic$,
+Normalized Mutual Information ($NMI$) and and Number of Communities
+($NC$). results are stochastic for 3 of the algorithms considered.
+Overall, as network fuzzyness increases, results produced by each
+algorithm diverge significantly in distinct ways: overestimation,
+underestimation and collapse.
+
+Section 5 deals with potential improvements of algorithms that can be
+obtained by aggregation of small communities into a "meta-community"
+labelled '0'.
+
+Section 6 proposes a consensus algorithm based on independent
+repetitions of (any) given CD algorithm, followed by pairwise comparison
+of node membership. This results in robust communities (depending on a
+single threshold p_min) and a 'robustenss of membership' RM associated
+with each node.
+
+Section 7 deals potential improvements suitable for algorithms that
+aggregate results in large communities. The method is "pre-cut" a
+randomly selec
+
+Finally, section 8 presents a method to assewithout built-in communities
+
+Section 9 draws onclusions and briefly discusses future developments.
+
+\newpage
+
+# 2- benchmark networks and Indicators to assess performance of CD methods
+
+## 2.1 benchmark networks
+
+As the real-world problems are unsupervised, it is impossible to compare
+the performance of different methods. To study the performance of the
+method, we will use a family of networks with built-in communities that
+allow comparison with true labels.
+
+LFR (Lancichinetti-Fortunato-Radicchi) benchmark graphs are synthetic
+networks used to evaluate the performance of network analysis
+algorithms. They are generated using a stochastic block model and are
+designed to have realistic community structure, degree distributions,
+and other properties of real-world networks.
+
+They are used to test the accuracy of algorithms for network analysis
+tasks such as community detection, link prediction, and node
+classification.
+
+Benchmark graphs for testing community detection algorithms, Andrea
+Lancichinetti, Santo Fortunato, and Filippo Radicchi, Phys. Rev. E 78,
+
+046110 2008 [LFR_benchmark_graph --- NetworkX 3.1
+documentation](https://networkx.org/documentation/stable/reference/generated/networkx.generators.community.LFR_benchmark_graph.html)
+
+The following code chunk defines a function to load a benchmark network
+(previously generated).
+
+```{r  echo=TRUE}
+load_benchmark_network <- function(mui, path = path, verbose = FALSE) {
+    #upload graph
+    filename = paste0(path, mui, ".gml")
+    print(filename)
+    g <- read_graph(filename, format = "gml")
+    # extract giant component
+    #components <- igraph::clusters(g, mode = "weak")
+    #g <-induced_subgraph(g, V(g)[components$membership == which.max(components$csize)])
+    # set names and weight (ww <- 1.0)
+    V(g)$core <- coreness(g)
+    V(g)$str <- strength(g)
+    V(g)$name <- paste0("V" , V(g)$label)
+    E(g)$ww <- 1.0
+    # print
+    if (verbose == TRUE) {
+        print(paste0("Loaded benchmark network ", path, mui, ".gml"))
+        print(paste("Giant component size :", length(V(g)$community)))
+        print(paste("Built-in communities: ", max(V(g)$community)))
+        mod <- round( modularity(g, array(V(g)$community+1) ), digits = 4)
+        print(paste("Modularity of built-in communities: ", mod))
+    } 
+    return(g)
+}
+```
+
+To illustrate the structure of a reference netowotk, we load a network
+with well-defined communities ($mu = 0.20$) and show a coreness-strength
+scatterplot.
+
+K-coreness is a measure of the centrality of a node within a network. It
+is defined as the largest value of k such that the node belongs to a
+subgraph of the network that is composed of nodes with at least degree
+k. A node with a high k-coreness is considered to be more central and
+influential within the network.
+
+Strength is a measure of the total weight of the connections a node has
+to other nodes in the network.
+
+```{r scatter Kcore-Sterngth benchmark, echo=TRUE, message=FALSE, warning=FALSE}
+path <- "./benchmark/LFR/LFR_benchmark_"
+g <- load_benchmark_network(mui = 20, path = path, verbose = TRUE)
+sc_data <- data.frame(c = V(g)$core, s = V(g)$str)
+sc_data %>% ggplot(aes(x = c, y = s))+
+    geom_point(color = "red", size = 3, alpha = .2)+
+    labs(title = "coreness and strength of a benchmark network", x = "k-coreness", y = "strength") +     theme_classic() 
+
+```
+
+```{r scatter nc degree, echo=TRUE, message=FALSE, warning=FALSE}
+dg <-  degree(g)
+ncd_data <- data.frame(d = dg, nc = as.factor(V(g)$community))
+ncd_data %>% ggplot(aes(x = d, y = nc, color = nc))+
+  geom_vline(xintercept = mean(dg),  color = 'black', linewidth = 1, alpha = 1)+
+  geom_point( size = 3, alpha = .2)+
+  labs(title = "built-in communities", x = "degree", y = "community ID") +     theme_classic() 
+```
+
+The family of benchmark networks can be characterized by the modularity
+of its built-in communities.
+
+```{r}
+mod_benchmarks <- data.frame(method = character(), mu = numeric(), modularity = numeric())
+method <- "built-in"
+for (mu in seq(10, 70, 5)) {
+    g <- load_benchmark_network(mui = mu, path = path)
+    mu <- empirical_mu(g)
+    mod <- modularity(g, make_clusters(g,V(g)$community+1 )$membership )
+    mod_benchmarks <- rbind(mod_benchmarks, data.frame(method,mu, mod))
+}
+mod_benchmarks %>% 
+  ggplot(aes(x = mu, y = mod)) +
+  geom_line(linewidth = 2, color = 'gray')+
+  geom_point()+
+  ylim(0,1) + theme_classic()
+
+ 
+```
+
+Methods based on modulartiy maximization are less effective with high
+values of \mu.
+
+\newpage
+
+## 2.2 fuzzyness on communities within a network
+
+In broad terms, "fuzziness" of communities within a network is a measure
+of how well-defined they are. This concept is closely related to the
+definition of "community" and can be assessed using "modularity"
+metrics. A good proxy for fuzzyness can be derived from Modularity $Q$
+of a given set of communities. If the network has built-in communities,
+$Q$ can be calculated directly. Otherwise, we are facing an unsupervised
+machine learning task: we assume that we have no prior knowledge on the
+existence of communities, hence NC may range from 0 (no communities, all
+nodes have the same membership label) to Nv (each node is an independent
+community). The fuzziness of a netwhork can be assumed as the maximum
+value of $Q$ obtained by N repetitions of different modularity
+maximization algorithms. T
+
+## 2.2 indicators
+
+Modularity $Q$ and Max(Q)that is a proxy of network fuzzyness
+
+NMI NC number of communities NMI can be useful to measure the agreement
+of two independent label assignments on the same dataset when the real
+ground truth is not known.
+
+\newpage
+
+# 3- community definitions and community detection methods
+
+## 3.1 definition of community
+
+The definition of 'community' in network analysis depends on the context
+and the researcher's goals. for example:
+
+1.  a community is a group of nodes that are more densely connected to
+    each other than to the rest of the network.
+
+2.  a community is group of nodes that share certain characteristics,
+    such as having similar properties
+
+3.  a community is a group of nodes that are more likely to interact
+    with each other than with other nodes in the network.
+
+We assume the first definition and test the following algorithms:
+
+-   FG Fast Greedy
+-   IM infomap
+-   LP Label Propagation
+-   ML Multilevel (aka Louvain)
+-   WT walktrap
+
+## ideal and real CD algorithm
+
+Ideally, result obtained by a CD algorithm should be similar to that
+obtained by other methods based on the same definition of community.
+This happens in networks with well-defined communities; as fuzzyness
+increases, results diverge.
+
+Moreover, an ideal CD algorithm should produce the same result at every
+run (it should not be stochastic, i.e. it should not depend on random
+initialization). However, many algorithms adopt a stochastic approach
+that increases speed. We argue that, when using a stochastic algorithm
+the uncertainty associated with its results should be carefully
+evaluated on the whole network and on the individual node. Specifically,
+we argue that, before selecting a stochastic CD algorithm for a new
+network, an *exploratory analysis of network fuzzyness* should be
+performed to asses the overall fuzzyness of the network (i.e. are there
+any easily identifiable communities within the network?). If fuzzyness
+is low, an appropriate CD method can be selected, and results can be
+confidently interpreted on a single run. In all other cases a more
+complex approach is required. The researcher must be aware that
+different methods will generate underestimates or overestimates of the
+number of communities, associated with great variability of results. In
+this context CD is still possible by using the following additional
+steps: - *aggregation* of small communities (for CD algorithms that
+produce highly fragmented results) - *consensus* among independent
+trials of the same method (that allows to estimate RM robustness of
+membership) - *pre-cut* of network (to imporve performance of CD
+algorithms that produce few large communities)
+
+ 
+
+Each method will be explored separately, in a single trial on a LFR
+benchmark network, highlighting the main results with the followin
+gfunction
+
+
+
+all trials use the same network
+
+```{r}
+mui = 30
+g <- load_benchmark_network(mui = mui, path = path, verbose = TRUE)
+```
+
+\newpage
+
+## 3.1 Method FG Fast Greedy
+
+This algorithm was proposed by Clauset et al.12. It is a greedy
+community analysis algorithm that optimises the modularity score. This
+method starts with a totally non-clustered initial assignment, where
+each node forms a singleton community, and then computes the expected
+improvement of modularity for each pair of communities, chooses a
+community pair that gives the maximum improvement of modularity and
+merges them into a new community. The above procedure is repeated until
+no community pairs merge leads to an increase in modularity. For sparse,
+hierarchical, networks the algorithm runs in $O$(N log2(N)).
+
+```{r}
+mui=10
+g <- load_benchmark_network(mui = mui, path = path)
+tmp_comms <- find_communities(g, method = "LV", verbose = FALSE)
+results <- analyse_communities(g, tmp_comms, verbose = TRUE)
+```
+
+## 3.2 Method IM infomap
+
+This algorithm was proposed by Rosvall et al.35,36. It figures out
+communities by employing random walks to analyse the information flow
+through a network17. This algorithm starts with encoding the network
+into modules in a way that maximises the amount of information about the
+original network. Then it sends the signal to a decoder through a
+channel with limited capacity. The decoder tries to decode the message
+and to construct a set of possible candidates for the original graph.
+The smaller the number of candidates, the more information about the
+original network has been transferred. This algorithm runs in $O$(E).
+
+```{r}
+tmp_comms <- find_communities(g, method = "IM", verbose = FALSE)
+results <- analyse_communities(g, tmp_comms, verbose = TRUE)
+```
+
+## 3.3 method LP Label Propagation
+
+This algorithm was introduced by Raghavan et al.38. It assumes that each
+node in the network is assigned to the same community as the majority of
+its neighbours. This algorithm starts with initialising a distinct label
+(community) for each node in the network. Then, the nodes in the network
+are listed in a random sequential order. Afterwards, through the
+sequence, each node takes the label of the majority of its neighbours.
+The above step will stop once each node has the same label as the
+majority of its neighbours. The computational complexity of label
+propagation algorithm is $O$(E).
+
+```{r}
+g <- load_benchmark_network(mui = mui, path = path)
+tmp_comms <- find_communities(g, method = "IM", verbose = FALSE)
+results <- analyse_communities(g, tmp_comms, verbose = TRUE)
+```
+
+## 3.4 method ML Multilevel (Louvain)
+
+This algorithm was introduced by Blondel et al.. It is a different
+greedy approach for optimising the modularity with respect to the
+Fastgreedy method. This method first assigns a different community to
+each node of the network, then a node is moved to the community of one
+of its neighbours with which it achieves the highest positive
+contribution to modularity. The above step is repeated for all nodes
+until no further improvement can be achieved. Then each community is
+considered as a single node on its own and the second step is repeated
+until there is only a single node left or when the modularity can't be
+increased in a single step. The computational complexity of the
+Multilevel algorithm is $O$(N log N). Blondel, V. D., Guillaume, J.-L.,
+Lambiotte, R. & Lefebvre, E. Fast unfolding of communities in large
+networks. Journal of Statistical Mechanics: Theory and Experiment 2008,
+P10008 (2008).
+
+```{r}
+g <- load_benchmark_network(mui = mui, path = path)
+tmp_comms <- find_communities(g, method = "ML", verbose = FALSE)
+results <- analyse_communities(g, tmp_comms, verbose = TRUE)
+```
+
+## 3.5 method WT walktrap
+
+This algorithm was proposed by Pon & Latapy. It is a hierarchical
+clustering algorithm. The basic idea of this method is that short
+distance random walks tend to stay in the same community. Starting from
+a totally non-clustered partition, the distances between all adjacent
+nodes are computed. Then, two adjacent communities are chosen, they are
+merged into a new one and the distances between communities are updated.
+This step is repeated (N-1) times, thus the computational complexity of
+this algorithm is $O$(E N2). For sparse networks the computational
+complexity is $O$(N2 log(N)
+
+```{r}
+g <- load_benchmark_network(mui = mui, path = path)
+tmp_comms <- find_communities(g, method = "WT", verbose = FALSE)
+results <- analyse_communities(g, tmp_comms, verbose = TRUE)
+```
+
+## 3.6 method LE leading eigenvector
+
+This algorithm w...
+
+```{r}
+g <- load_benchmark_network(mui = mui, path = path)
+tmp_comms <- find_communities(g, method = "LE", verbose = FALSE)
+results <- analyse_communities(g, tmp_comms, verbose = TRUE)
+
+```
+
+# 4- performance of 6 CD methods on LFR benchmark networks (repeated trials)
+
+Exploring the variations of results: we generate 200 trials for a range
+of MU and save results in a csv file.
+
+```{r}
+
+```
+
+
+ # loaded from separate file
+ ```{r MAIN SIMULATION, eval=FALSE, include=FALSE}
+find_communities_N_times <- function(n_trials,
+                                     methods,
+                                     mu_values,
+                                     filename_summary,
+                                     filename_membership) {
+  results_n_trials <- data.frame()
+  membership_matrix <- c()
+  for (mu in mu_values) {
+    g <- load_benchmark_network(mui = mu, path = path)
+    
+    for (i in 1:n_trials) {
+      for (met in methods) {
+        tmp_comms <- find_communities(g, method = met)
+        results_single <- analyse_communities(g, tmp_comms)
+        results_n_trials = rbind(results_n_trials, results_single)
+        membership_matrix <- cbind(membership_matrix, tmp_comms$membership)
+      }
+    }
+  }
+  membership_n_trials <- data.frame(membership_matrix)
+  membership_n_trials %>% write_csv(filename_membership)
+  results_n_trials %>% write_csv(filename_summary)
+  return(1)
+}
+
+ ```
+
+```{r}
+#calculate number of built-in communities 
+mu_values <- seq(5, 60, 5)
+nc_builtin <- c()
+for (mu in mu_values) {
+    g <- load_benchmark_network(mui = mu, path = path)
+    nc_builtin <- c(nc_builtin,max(V(g)$community))
+}
+
+```
+
+## MAIN sumulation
+generates 2 files in the 'results' folder
+- summary
+- matrix of membership vectors (by ROW)
+eval = false: will not be executed by "run ALL"
+
+```{r eval=FALSE, include=TRUE}
+mu_values <- seq(5, 60, 5)
+n_trials <- 100
+
+for (mu in mu_values) {
+    print(paste('analysing benchmark', mu))
+    g <- load_benchmark_network(mui = mu,
+                                path = path,
+                                verbose = FALSE)
+    
+    find_communities_N_times (
+        g,
+        n_trials = n_trials,
+        methods = c("FG", "IM", "LP", "ML", "WT", "LV"),
+        filename_summary = paste0('results/summary_single_', mu, '.csv'),
+        filename_membership = paste0('results/matrix_single_', mu, '.csv')
+    )
+    
+}
+
+    
+```
+
+```{r read csv repeated results, message=FALSE, warning=FALSE}
+summary_results <- data.frame()
+membership_matrix <- c()
+for (mu in mu_values) {
+    summary_results <-
+        rbind(summary_results, 
+              read_csv(paste0('results/summary_single_', mu, '.csv')))
+    membership_matrix <-
+        rbind(membership_matrix, 
+              read_csv(paste0('results/matrix_single_', mu, '.csv')))
+}
+
+```
+
+  
+
+ ` `{r}
+p1 <- summary_results %>% 
+  group_by(method, mu_built_in) %>% 
+  summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
+  
+  ggplot(aes(x = mu_built_in, y = mean_nmi)) +
+  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
+  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nmi-2*sd_nmi, ymax = mean_nmi + 2*sd_nmi, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 0.5)+
+  geom_vline(xintercept = 0.5)+
+  labs(title = "NMI ", y = "NMI", x = "empirical mixing parameter") +
+  theme_light()   + theme(legend.position="none")
+p1
+ 
+
+  
+
+ 
+p2 <- summary_results %>% 
+  group_by(method, mu_built_in) %>%  
+  summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
+  
+  ggplot(aes(x = mu_built_in, y = mean_nc)) +
+  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
+  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 1)+
+  geom_vline(xintercept = 0.5)+
+  labs(title = "number of communities ", y = "normalized number of communities C/C0", x = "empirical mixing parameter") +
+  theme_light() + theme(legend.position="none")
+
+p2
+
+ ``
+
+```{r}
+p1 <-
+    summary_results %>% filter(mu_built_in == 0.4182) %>% filter(method != 'LV') %>%
+    ggplot(aes(y = method, x = nmi)) +
+    geom_boxplot(
+        aes(color = method),
+        outlier.shape = 19,
+        outlier.size = 3  
+    ) +
+    stat_boxplot(aes(color = method), geom = 'errorbar') +
+    labs(title = "variability of results", x = "NMI", y = "methods") +
+    theme_light()  + theme(legend.position = "none")
+
+p2 <- summary_results %>% filter(mu_built_in == 0.4182)%>% filter(method != 'LV')%>%
+  ggplot(aes( y = method, x = nc_norm)) +
+  geom_boxplot(aes(color = method),  outlier.shape = 19, outlier.size = 3 )+
+stat_boxplot(aes(color = method), geom ='errorbar')+
+        geom_vline(xintercept =1, color = 'black', stroke = 4)+
+
+      labs(title = "number of communities", x = "K/K0", y = "") +
+  theme_light()  + theme(legend.position="none")
+
+
+
+p3<-summary_results %>% filter(mu_built_in == 0.4182) %>% filter(method != 'LV')%>%
+    select(mu_emp, mu_built_in, method) %>%
+    ggplot(aes(y = method, x = mu_emp, color = method)) +
+    geom_boxplot()+
+    geom_vline(xintercept = 0.4182, color = 'black', stroke = 4)+
+    xlim(0.30,0.45)+
+    labs(title = "mixing parameter", y = "", x = "empirical mixing parameter") +
+
+    theme_light()   + theme(legend.position="none")
+ 
+
+grid.arrange(p1, p2, p3,  ncol = 3, widths = c(0.3, 0.3, 0.3) )
+
+```
+  # VALIDITY of
+  
+  
+```{r}
+summary_results %>%  
+    select(mu_emp, mu_built_in, method, nc) %>% 
+    filter(method != 'LV')%>%
+    filter(mu_built_in %in% c(0.0275, 0.1997, 0.6699))%>%
+    mutate(network = as.factor(mu_built_in))%>%
+    ggplot(aes(x = nc, y = mu_emp)) +
+    geom_rect( aes(NULL, NULL, xmin = 0 , xmax = 200, ymin = 0.5, ymax = 0.6 ), fill = "lightyellow")+
+
+    geom_point(aes(color = (method)), size = 2, alpha = 0.5) +
+
+    geom_vline(xintercept = 0.5, color = 'red')+
+    geom_hline(yintercept = 0.5, color = 'red')+
+    labs(title = "Validity of community structure on 3 sample networks", y = "mu (empirical)", x = "number of communities") +
+    theme_classic()+ facet_wrap(~network) + theme(aspect.ratio=.6)
+ 
+```
+
+```
+  
+  

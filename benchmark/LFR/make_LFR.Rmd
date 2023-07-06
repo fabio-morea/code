@@ -1,11 +1,10 @@
 ---
-title: "Visualization of networks and communities"
+title: "build LFR benchmark networks"
 author: "Fabio Morea"
-date: "2023-05-13"
+date: "2023-06-2"
 output:
   beamer_presentation: default
-  slidy_presentation: default
-  ioslides_presentation: default
+
 ---
 
 ```{r include=FALSE}
@@ -13,83 +12,6 @@ output:
 knitr::opts_chunk$set(echo = FALSE)
 ```
 
-# introduction
-
-## Networks and communities
-
-Network analysis is a powerful tool for understanding complex systems in
-both the hard and social sciences. By representing data as a network, it
-is possible to identify communities of similar members, or nodes, that
-are connected to each other by various relationships.
-
-This allows to gain insights into the structure of the system, as well
-as the behavior of the nodes within it.
-
-*For example, in social networks, nodes can represent people, and the
-relationships between them can represent various types of interactions,
-such as friendships or collaborations. By analyzing the network,
-researchers can identify clusters of people who are more likely to
-interact with each other, or who share similar characteristics.*
-
-## Networks and communities: a toy example
-
-```{r echo=FALSE, message=FALSE, warning=FALSE}
-library(igraph)
-g <- make_graph("Zachary") # "karate" 
-comms <- cluster_louvain(g) 
-plot(comms, g, layout = layout_with_graphopt)
-```
-
-## Communities in large networks
-
-As the size of a network increases, the complexity of the network also
-increases, making it difficult to represent the network in a simple
-visual format. As a result, a simple visualization may not provide much
-clarity in understanding the structure of the network. To gain a better
-understanding of a large network, more sophisticated visualizations and
-analysis techniques are needed.
-
-## Contents of this seminar
-
-1.  A family of benchmark networks (with built-in communities and
-    controlled *fuzzyness*)
-
-2.  Visualization of network and communities (standard and custom
-    layouts, k-core VS strength)
-
-3.  Modularity-based community detection
-
-4.  robustness of results in *fuzzy* networks
-
-5.  consensus and "robustness of membership"
-
-6.  sample results in a "labour market network"
-
-# 1 A family of benchmark networks (with built-in communities and controlled *fuzzyness*)
-
-## About LFR benchmark networks
-
-LFR (Lancichinetti-Fortunato-Radicchi) benchmark graphs are synthetic
-networks used to evaluate the performance of network analysis
-algorithms. They are generated using a stochastic block model and are
-designed to have realistic community structure, degree distributions,
-and other properties of real-world networks.
-
-They are used to test the accuracy of algorithms for network analysis
-tasks such as community detection, link prediction, and node
-classification.
-
-Benchmark graphs for testing community detection algorithms, Andrea
-Lancichinetti, Santo Fortunato, and Filippo Radicchi, Phys. Rev. E 78,
-046110 2008
-
-[LFR_benchmark_graph --- NetworkX 3.1
-documentation](https://networkx.org/documentation/stable/reference/generated/networkx.generators.community.LFR_benchmark_graph.html)
-
-## Building a family of LFR benchmark networks
-
-in Python , networkx LFR_benchmark_graph()
-[*https://networkx.org/documentation/stable/reference/generated/networkx.generators.community.LFR_benchmark_graph.html*](https://networkx.org/documentation/stable/reference/generated/networkx.generators.community.LFR_benchmark_graph.html){.uri}
 
 ```{python}
 import networkx as nx
@@ -99,6 +21,7 @@ import igraph as ig
 from networkx.generators.community import LFR_benchmark_graph
 
 ```
+
 
 ```{python}
 def add_true_labels(G):
@@ -122,6 +45,7 @@ def add_true_labels(G):
     return(G)
 
 ```
+
 
 ```{python echo=TRUE }
 for mui in range(10,99,20):
