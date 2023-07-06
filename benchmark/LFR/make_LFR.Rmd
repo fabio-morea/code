@@ -1,0 +1,632 @@
+---
+title: "Visualization of networks and communities"
+author: "Fabio Morea"
+date: "2023-05-13"
+output:
+  beamer_presentation: default
+  slidy_presentation: default
+  ioslides_presentation: default
+---
+
+```{r include=FALSE}
+# knitr manual: https://yihui.org/knitr/
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+# introduction
+
+## Networks and communities
+
+Network analysis is a powerful tool for understanding complex systems in
+both the hard and social sciences. By representing data as a network, it
+is possible to identify communities of similar members, or nodes, that
+are connected to each other by various relationships.
+
+This allows to gain insights into the structure of the system, as well
+as the behavior of the nodes within it.
+
+*For example, in social networks, nodes can represent people, and the
+relationships between them can represent various types of interactions,
+such as friendships or collaborations. By analyzing the network,
+researchers can identify clusters of people who are more likely to
+interact with each other, or who share similar characteristics.*
+
+## Networks and communities: a toy example
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+library(igraph)
+g <- make_graph("Zachary") # "karate" 
+comms <- cluster_louvain(g) 
+plot(comms, g, layout = layout_with_graphopt)
+```
+
+## Communities in large networks
+
+As the size of a network increases, the complexity of the network also
+increases, making it difficult to represent the network in a simple
+visual format. As a result, a simple visualization may not provide much
+clarity in understanding the structure of the network. To gain a better
+understanding of a large network, more sophisticated visualizations and
+analysis techniques are needed.
+
+## Contents of this seminar
+
+1.  A family of benchmark networks (with built-in communities and
+    controlled *fuzzyness*)
+
+2.  Visualization of network and communities (standard and custom
+    layouts, k-core VS strength)
+
+3.  Modularity-based community detection
+
+4.  robustness of results in *fuzzy* networks
+
+5.  consensus and "robustness of membership"
+
+6.  sample results in a "labour market network"
+
+# 1 A family of benchmark networks (with built-in communities and controlled *fuzzyness*)
+
+## About LFR benchmark networks
+
+LFR (Lancichinetti-Fortunato-Radicchi) benchmark graphs are synthetic
+networks used to evaluate the performance of network analysis
+algorithms. They are generated using a stochastic block model and are
+designed to have realistic community structure, degree distributions,
+and other properties of real-world networks.
+
+They are used to test the accuracy of algorithms for network analysis
+tasks such as community detection, link prediction, and node
+classification.
+
+Benchmark graphs for testing community detection algorithms, Andrea
+Lancichinetti, Santo Fortunato, and Filippo Radicchi, Phys. Rev. E 78,
+046110 2008
+
+[LFR_benchmark_graph --- NetworkX 3.1
+documentation](https://networkx.org/documentation/stable/reference/generated/networkx.generators.community.LFR_benchmark_graph.html)
+
+## Building a family of LFR benchmark networks
+
+in Python , networkx LFR_benchmark_graph()
+[*https://networkx.org/documentation/stable/reference/generated/networkx.generators.community.LFR_benchmark_graph.html*](https://networkx.org/documentation/stable/reference/generated/networkx.generators.community.LFR_benchmark_graph.html){.uri}
+
+```{python}
+import networkx as nx
+import numpy as np
+import pandas as pd
+import igraph as ig
+from networkx.generators.community import LFR_benchmark_graph
+
+```
+
+```{python}
+def add_true_labels(G):
+
+    cm = [(G.nodes[v]["community"]) for v in G]
+    unique_cm = []
+
+    # iterate through the list of sets
+    for set_ in cm:
+        # check if the set is already in the list of unique sets
+        if set_ not in unique_cm:
+            # if not, add it to the list of unique sets
+            unique_cm.append(set_)
+
+    df = pd.DataFrame(columns=['community']) 
+    for comm_id, members in enumerate(unique_cm):
+        for node in list(members):
+            df.at[node, 'community'] = comm_id + 1 
+            
+    nx.set_node_attributes(G, df.community, "community")
+    return(G)
+
+```
+
+```{python echo=TRUE }
+for mui in range(10,99,20):
+    print("generating LFR benchmark. Fuzzyness mu = ", mui/100)
+    gb = LFR_benchmark_graph( mu=mui/100, 
+        n= 250,  
+        tau1 = 2, 
+        tau2 = 2, 
+        average_degree=5, 
+        min_community=30, 
+        seed=42)
+    gt = add_true_labels(gb)
+    nx.write_gml(gt, f"./LFR_graphs/small/FLR_benchmark_{mui}.gml")
+```
+
+# 2- Visualization of network and communities (standard and custom layouts, k-core VS strength)
+
+```{r include=FALSE}
+library(igraph)
+library(tidyverse)
+```
+
+## print mu = 10%
+
+...
+
+```{r}
+mui = 10
+filename = paste0("./LFR_graphs/small/FLR_benchmark_", mui, ".gml")
+print(paste("Loading graph...", filename))
+g <- read_graph(filename, format = "gml")
+LO = layout_with_fr(g)
+print(head(LO,10))
+
+```
+
+## plot function
+
+```{r echo=TRUE}
+
+plot_graph_and_comms <- function(mui , show_comms = TRUE) {
+  filename = paste0("./LFR_graphs/small/FLR_benchmark_", mui, ".gml")
+  print(paste("Benchmark network ", filename,"and communities (true-labels)"))
+  g <- read_graph(filename, format = "gml")
+  LO = layout_with_fr(g)
+  if (show_comms == TRUE) {
+    comms = table(V(g)$community)
+    comms = make_clusters(g,
+                          membership = V(g)$community,
+                          modularity = FALSE)
+    plot(
+      comms,
+      g,
+      vertex.color = V(g)$community,
+      layout = LO,
+      vertex.size = 5,
+      vertex.label = NA
+    )
+  } else {
+    plot(
+      g,
+      vertex.color = V(g)$community,
+      layout = LO,
+      vertex.size = 5,
+      vertex.label = NA
+    )
+    
+  }
+  return(1)
+}
+```
+
+## sample network ( mu = 0.10 )
+
+```{r echo=TRUE}
+plot_graph_and_comms(mui = 10 , show_comms = FALSE) 
+```
+
+## sample network ( mui = 0.50 )
+
+```{r echo=TRUE}
+plot_graph_and_comms(mui = 50 , show_comms = FALSE) 
+```
+
+## coreness and strength
+
+K-coreness is a measure of the centrality of a node within a network. It
+is defined as the largest value of k such that the node belongs to a
+subgraph of the network that is composed of nodes with at least degree
+k. A node with a high k-coreness is considered to be more central and
+influential within the network.
+
+Strength is a measure of the total weight of the connections a node has
+to other nodes in the network.
+
+## sample network ( mu = 0.50 ): coreness and strength
+
+```{r}
+df0 <- data.frame(s = strength(g), c = coreness(g))
+df0 %>% ggplot(aes(x = c, y = s))+
+    geom_point(color = "red", size = 3, alpha = .5)+
+    labs(title = "coreness and strength of V(g)", x = "k-coreness", y = "strength") +
+    theme_gray() 
+```
+
+## customized layout
+
+```{r include=FALSE}
+
+mui = 90
+filename = paste0("./LFR_graphs/small/FLR_benchmark_", mui, ".gml")
+print(paste("Loading graph...", filename))
+g <- read_graph(filename, format = "gml")
+components <- igraph::clusters(g, mode="weak")
+g <- induced_subgraph(g, V(g)[components$membership == which.max(components$csize)])
+
+
+selected_clusters = c(1,2,3,4)
+for (i in selected_clusters) stopifnot(i %in% unique(V(g)$community))
+
+
+V(g)$labels <- seq(1:gorder(g))
+
+
+g <- induced.subgraph(g, V(g)[ V(g)$community %in% selected_clusters]) 
+d = 20.0
+alpha <- 0
+dalpha <- 2 * pi / length(selected_clusters)
+
+newlay <- tibble(labels = as.integer(1),x = 0.0, y = 0.0)%>% 
+		head(0)
+
+for (i in selected_clusters) {
+	temp <- induced.subgraph(g, V(g)$community == i)
+	labels <- V(temp)$labels
+	coords <- layout_with_fr(temp)# layout_with_kk(temp) #
+	coords[,1] <- coords[,1] + d * cos(alpha)  
+	coords[,2] <- coords[,2] + d * sin(alpha)
+	alpha <- alpha + dalpha
+	coords_tibble <- tibble(labels = labels, x = coords[,1], y = coords[,2])
+	newlay <- rbind(newlay,coords_tibble)
+	print(nrow(newlay))
+	print(nrow(coords_tibble))
+	
+}
+coords <- newlay %>%
+    	arrange(labels)%>%
+		select(x,y) %>%
+		as.matrix()
+
+
+
+
+
+```
+
+## plot customized layout
+
+```{r}
+plot(g, layout = coords, 
+    vertex.color = V(g)$community,
+	  vertex.label=NA,
+	  vertex.size = 5,
+	  edge.width = 2,
+	  edge.arrow.size = 0)
+```
+
+# 3 - unsupervised community detection
+
+## What is a community
+
+the definition of 'community' in network analysis depends on the context
+and the researcher's goals. for example:
+
+1.  a community is a group of nodes that are more densely connected to
+    each other than to the rest of the network.
+
+2.  a community is group of nodes that share certain characteristics,
+    such as having similar properties
+
+3.  a community is a group of nodes that are more likely to interact
+    with each other than with other nodes in the network.
+
+4.  ...
+
+## Modularity based community detection (1)
+
+-   **Assumptions**:
+
+    -   community is subset of nodes that are more densely connected to
+        each other than to the rest of the network
+
+    -   partition
+
+    -   unsupervised ("true labels" are not available - or not used for
+        community detection)
+
+## Modularity based community detection (2)
+
+-   **Definition of Modularity**: Given a network G partitioned into a
+    number of communities Gi, modularity Q(G,Gi) is a function measuring
+    the extent to which edge density is higher within than between
+    communities. i.e. a partition of G that maximises Q results in
+    communities that have strong internal connections and weak
+    connections with other communities
+
+*A partition with a higher modularity score indicates that the edges
+within the partition are denser than the edges between partitions,
+suggesting strong internal connections and weak connections with other
+communities. **The optimal partition maximizes modularity***
+
+## Louvain community detection algorithm
+
+Modularity optimization, by means of a hierarchical approach.
+
+1.  Initiates by partitioning the network so that each vertex is
+    assigned to a single community.
+
+2.  Starting with a random vertex Vi, it computes the potential
+    variation in modularity ΔQi j that would occur by aggregating Vi to
+    each of its neighbours Vj.
+
+3.  If max(ΔQik) \> 0 then, Vi is removed from its original community
+    and aggregated to the neighbour Vk that maximises the gain.
+
+4.  The number of communities is thus reduced, and process is repeated
+    sequentially for all other vertices until max(ΔQik)≤0 .
+
+As all methods based on modularity optimization it is biased by some
+intrinsic limits
+
+-   greedy (find local optima)
+
+-   Results depend on user-defined parameters
+
+-   results depend on random initialisation and sequence of vrtices
+
+# 4. robustness of results in *fuzzy* networks
+
+## a function to test the distribution of results
+
+## sample network ( mu = 0.50 ): coreness and strength
+
+```{r}
+mui = 20
+filename = paste0("./LFR_graphs/benchmark/FLR_benchmark_", mui, ".gml")
+g <- read_graph(filename, format = "gml")
+df1 <- data.frame(s = strength(g), c = coreness(g))
+df1 %>% ggplot(aes(x = c, y = s))+
+    geom_point(color = "red", size = 3, alpha = .5)+
+    labs(title = "coreness and strength of V(g)", x = "k-coreness", y = "strength") +
+    theme_gray() 
+```
+
+```{r}
+library(igraph)
+library(NMI)
+modularity_based_communities <- function(g, mui, verbose=FALSE) {
+    filename = paste0("./LFR_graphs/benchmark/FLR_benchmark_", mui, ".gml")
+    g <- read_graph(filename, format = "gml")
+    components <- igraph::clusters(g, mode = "weak")
+    g <- induced_subgraph(g, V(g)[components$membership == which.max(components$csize)])
+    cluster_tmp <- cluster_louvain(g, resolution = 1.0)
+    mod <- modularity (g,  cluster_tmp$membership)
+    nc <- max(cluster_tmp$membership)
+    
+    V(g)$name <- paste0("V" , V(g)$label)
+	true_labels <- data.frame(V(g)$name, V(g)$community)
+    louvain_labels <- data.frame(V(g)$name,cluster_tmp$membership)
+	n_m_i = NMI(true_labels,louvain_labels)$value
+    
+    if(verbose == TRUE){
+        print(paste( "Analysing ", filename, "..."))
+        print(paste("Built-in communities: ",max(V(g)$community)))
+        print("Community detection results")
+        print(paste("Modularity: ", mod))
+        print(paste("Normalized Mutual Information", n_m_i))
+        print(table(list(cluster_tmp$membership)))
+
+    } 
+    return(data.frame(mui, mod, nc, n_m_i))
+}
+```
+
+# Community detection: single trial
+
+```{r}
+
+membership <- modularity_based_communities(g, mui, verbose = TRUE)
+```
+
+# Community detection: repeated trials
+
+```{r}
+for (i in 1:10){
+    mod_nc <- modularity_based_communities(g, mui, verbose = FALSE)
+    print(paste(mod_nc[3], "communities found"))
+}
+```
+
+## Community detection: 1000 trials
+
+```{r include=FALSE}
+library(tidyverse)
+df <- data.frame()
+for (i in 1:1000) {
+    for (mui in c(20, 50, 80)) {
+        mod_nc <- modularity_based_communities(g, mui, verbose = FALSE)
+        df = rbind(df, mod_nc)
+    }
+}
+```
+
+## results (1)
+
+```{r}
+df %>% ggplot(aes(x = mod)) +
+    geom_histogram(color = "white", fill = "green", bins = 100) +
+    labs(title = "Distribution of modularity over 1000 trials", x = "modularity", y = "count") +
+    theme_gray() + 
+    facet_grid(mui ~ .)
+```
+
+## results (2)
+
+```{r}
+df %>% ggplot(aes(x = nc)) +
+    geom_histogram(color = "white", fill = "blue", bins = 20) +
+    labs(title = "Distribution of nc (number of communities) over 1000 trials", x = "number of communities", y = "count") +
+    geom_vline(xintercept = 37)+
+    theme_gray() + 
+    facet_grid(mui ~ .)
+```
+
+## results (3)
+
+```{r}
+df %>% ggplot(aes(x = n_m_i)) +
+    geom_histogram(color = "white", fill = "red", bins = 100) +
+    labs(title = "Distribution of modularity over 1000 trials", x = "Normalized Mutual Information", y = "count") +
+    theme_gray() + 
+    facet_grid(mui ~ .)
+```
+
+## results (4)
+
+```{r}
+df %>% ggplot(aes(x = mod, y = nc)) +
+    geom_point() +
+    labs(title = "Modularity vs Number of Communities over 1000 trials", y = "number of communities", x = "modularity") +
+    theme_gray() + 
+    facet_wrap(mui ~ .,  scales = "free_x")
+```
+
+## results (5)
+
+```{r}
+df %>% ggplot(aes(x = n_m_i, y = mod)) +
+    geom_point() +
+    labs(title = "Modularity vs NMI over 1000 trials", x = "Normalized Mutual Information", y = "modularity") +
+    theme_gray() + 
+    facet_wrap(mui ~ .,  scales = "free_x")
+```
+
+# 5. consensus and "robustness of membership"
+
+## inspired by 'random forrest" algorithm
+
+Random Forest is an ensemble machine learning algorithm that combines
+the results produced by multiple independent instances of 'regression
+tree' (or 'decision tree') to obtain predictive performance than could
+be obtained from any of the 'trees' alone.
+
+The algorithm builds N = 500 trees, each based on a randomly selected
+subset of features from the training dataset. The final prediction is
+made by averaging the predictions (or selecting the mode) of all the N
+trees.
+
+**note**: Random Forest is a *supervised* algorithm (community detection
+is *unsupervised*)
+
+## Consensus community detection (CCD)
+
+CCD can be used to enhance both the stability and the accuracy of the
+resulting partitions, reducing dependence on user-defined parameters and
+random initialization
+
+Principles:
+
+    -   **Independent trials**
+
+    -   **Consensus**
+
+    -   **Pruning**
+
+## Consensus community detection (CCD)
+
+**Independent trials:** The Louvain community detection algorithm is
+repeated Ni times, and at each iteration only a part of the information
+in the network is used i.e. a randomly chosen fraction α of edges is
+assigned a weight W0 (small, but non-zero). The resulting network is not
+losing connectivity, but edges associated with W0 are more likely to be
+assigned to different community at each iteration
+
+## Consensus community detection (CCD)
+
+**Consensus**: the consensus algorithm counts how many times a pair of
+vertices Vi and Vj are assigned to the same community and assigns a
+***proportion of membership*** PVij ∈ [0,1].
+
+Vertices that are strongly connected to one another are always assigned
+to the same community and have PVij = 1; lower values of Pvij indicate
+that the vertex is not strongly connected to its neighbors, and it may
+be assigned to two or more communities with some degree of confidence.
+
+## Consensus community detection (CCD)
+
+**Pruning**: The algorithm creates a meta-community labelled as
+"community 0" defined by regular equivalence (i.e. vertices covering the
+same "marginal" role in the network):
+
+-   Vertices with max(Pvij) \< 0.5
+-   Trivially small communities of size Scommunity \< Scmin ,
+-   Trivially small communities of weight Wcommunity \< Wcmin
+
+## CCD parameters
+
+Independent trials
+
+-   \- N repetitions: independent repetitions of the whole procedure
+
+-   \- N trials: independent trials of modularity based community
+    detection
+
+Consensus
+
+-   Alpha: fraction of edges that is assigned a weight W0. *default
+    0.05*
+
+-   Epsilon: to set the appropriate value of W0 = min(Wi \* Epsilon)
+    *default 0.01*
+
+-   Resolution: parameter of Louvain Community Detection *default 1.0*
+
+-   P_threshold: proportion of membership threshold *default 0.5*
+
+## simulation plan (1)
+
+```{r message=FALSE, warning=FALSE, include=FALSE}
+source('source_functions_cons_com_det.r')
+```
+
+## simulation plan (2)
+
+We simulate several LFR networks setting different parameters hat
+reproduce some of the key structural features of a network of interest
+(labour market network of Friuli Venezia Giulia)
+
+-   N=1000
+
+-   Average degree = 10
+
+-   Community size min = 20 max = 50 Tau1 = 2
+
+-   Tau2 = 3
+
+-   mu { 0.1, 0.2, .... 0.9 }
+
+-   Mu is the crucial parameter for our test, as it governs the
+    fuzziness of communities.
+
+## results (1)
+
+![](images/paste-89AB04A9.png){width="760" height="422"}
+
+## results (2)
+
+![](images/paste-F8669B18.png){width="662" height="432"}
+
+## results (3)
+
+![](images/paste-657043E9.png){width="571" height="362"}
+
+# 6. sample results in a "labour market network"
+
+## Coreness and strength
+
+## Communities
+
+![](images/paste-484EE1EF.png){width="570"}
+
+## Community "0"
+
+Community 0 is a community of regular equivalent organizations or
+organisation whose membership is strongly dependent on the random
+initialisation of the community detection algorithm
+
+-   Disconnected components
+
+-   Communities identified by consensus algorithm that fall below
+    thresholds of size of weight
+
+-   Nodes that are assigned to different commuities at each run of
+    Louvain community detection
+
+## Community "0"
+
+![](images/paste-91D29A70.png){width="430"}

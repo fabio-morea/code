@@ -1,0 +1,374 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+library(igraph)
+library(tidyverse)
+```
+
+```{r}
+
+generate_star_graph <- function(NC, N) {
+  # Create a data frame with node labels
+  nodes <- data.frame(
+    label = seq(NC, NC + N),
+    stringsAsFactors = FALSE
+  )
+  
+  # Create an empty data frame for edges
+  edges <- data.frame(
+    from = character(),
+    to = character(),
+    stringsAsFactors = FALSE
+  )
+  
+  # Generate edges between each node and the next node
+  for (i in 2:N) {
+    new_edges <- data.frame(from = nodes$label[i],to = nodes$label[i + 1])
+    edges <- rbind(edges, new_edges)
+  }
+  
+  # close circle
+  new_edges <- data.frame(from = nodes$label[2],to = nodes$label[N+1])
+  edges <- rbind(edges, new_edges)
+  
+  # Generate edges between each node and the central node
+  edges <- rbind(edges, data.frame(from = nodes$label, to = NC))
+  
+  
+  
+  # Create a graph object
+  graph <- graph_from_data_frame(edges, vertices = nodes)
+  
+ # print( V(graph)[nodes$label[2]])
+ # print( V(graph)[nodes$label[N]])
+  
+  
+ # graph <- add_edges(graph, c(V(graph)[nodes$label[2]], V(graph)[nodes$label[N]]))
+  
+  graph <- delete.edges(graph, which(which_loop(graph)==TRUE))
+
+  return(as.undirected(graph))
+}
+
+# Example usage
+
+
+
+```
+
+```{r}
+g0 <- generate_star_graph(NC = 1, N = 2)
+g0 <- delete.vertices(g0, c(V(g0)["3"]))
+
+
+g10 <- generate_star_graph(NC = 10, N = 9)
+g20 <- generate_star_graph(NC = 20, N = 9)
+g30 <- generate_star_graph(NC = 30, N = 9)
+
+g <- graph.union(g0, g10, g20, g30)
+
+g <- add_edges(g, c(V(g)["1"], V(g)["11"]))
+g <- add_edges(g, c(V(g)["1"], V(g)["12"]))
+
+g <- add_edges(g, c(V(g)["1"], V(g)["21"]))
+g <- add_edges(g, c(V(g)["1"], V(g)["22"]))
+
+g <- add_edges(g, c(V(g)["1"], V(g)["31"]))
+g <- add_edges(g, c(V(g)["1"], V(g)["32"]))
+
+g <- add.vertices(g, 1, name = "B12")
+g <- add_edges(g, c(V(g)["B12"], V(g)["14"]))
+g <- add_edges(g, c(V(g)["B12"], V(g)["29"]))
+
+
+g <- add.vertices(g, 1, name = "B23")
+g <- add_edges(g, c(V(g)["B23"], V(g)["24"]))
+g <- add_edges(g, c(V(g)["B23"], V(g)["39"]))
+
+g <- add.vertices(g, 1, name = "B13")
+g <- add_edges(g, c(V(g)["B13"], V(g)["34"]))
+g <- add_edges(g, c(V(g)["B13"], V(g)["19"]))
+
+
+V(g)$str = strength(g)
+V(g)$cor = coreness(g)
+
+layout <- layout.kamada.kawai(g)
+#layout <- layout.star(g, center = 1)
+
+plot(g, layout = layout, vertex.label = V(g)$label, vertex.size = V(g)$str*2, vertex.color = "lightgray")
+  
+V(g)
+ 
+```
+
+```{r}
+communities <- cluster_louvain(g, resolution = 1.2)
+#communities <- cluster_infomap(g)
+
+# Plot the graph with community colors
+plot(communities, g, vertex.size = strength(g), vertex.label = NA, asp = 0, edge.arrow.size = 0.5)
+```
+
+```{r}
+strength(g)
+```
+
+```{r}
+
+# Number of trials
+num_trials <- 100
+
+# Vector to store the number of communities in each trial
+num_communities <- numeric(num_trials)
+
+# Run community detection algorithm and record the number of communities
+for (i in 1:num_trials) {
+  communities <- cluster_louvain(g, resolution = 1.1)
+  num_communities[i] <- length(communities)
+}
+
+table(num_communities)
+# Plot the histogram of the number of communities
+#hist(num_communities, main = "Histogram of Number of Communities",    xlab = "Number of Communities", ylab = "Frequency", bins = 10)
+```
+
+```{r}
+ 
+ 
+# Number of iterations
+num_iterations <- 100
+# Total number of nodes
+num_nodes <- vcount(g)
+  
+# Run community detection algorithm and calculate probability matrix for each iteration
+  # Create an empty matrix to store the probabilities
+  probability_matrix <- matrix(0, nrow = num_nodes, ncol = num_nodes)
+  
+for (iter in 1:num_iterations) {
+  # Run community detection algorithm
+  communities <- cluster_louvain(g)
+  
+  # Iterate over all pairs of nodes
+  for (i in 1:num_nodes) {
+    for (j in 1:num_nodes) {
+      # Check if nodes i and j belong to the same community
+      if (membership(communities)[i] == membership(communities)[j]) {
+        probability_matrix[i, j] <- probability_matrix[i, j] + 1
+      }
+    }
+  }
+  
+  
+
+}
+
+diag(probability_matrix) <- 0
+
+# Calculate the average probability matrix
+p_matrix <-   probability_matrix / num_iterations
+
+max_by_row <- apply(p_matrix, 1, max)
+print(max_by_row)
+ 
+```
+
+NOTA: le comunità cambiano ad ogni iterazione, i nodi 40 e 41 sono
+spesso associati alle altre comunità. Ma il consensus ci dice che
+l'unica certezza è che 40 e 41 stanno sempre assieme. infatti è tutto a
+P == 1.0
+
+```{r}
+g1 <- delete.vertices(g, c(V(g)["2"]))
+V(g1)$str = strength(g1)
+V(g1)$cor = coreness(g1)
+write_graph(g1, "sym_3star_9", format = "edgelist")
+```
+
+```{r}
+
+#graph_edges <- data.frame(read_delim("sym_3star_9"  , delim = " ", col_names = FALSE))
+#g1 <- graph_from_data_frame(graph_edges, directed = FALSE)
+
+
+#    shuffled_graph_edges <- graph_edges[sample(1:nrow(graph_edges)), ]
+#    g1 <- graph_from_data_frame(shuffled_graph_edges, directed = FALSE)
+    
+    g1 <- delete.vertices(g, c(V(g)["2"]))
+
+    V(g1)$str <- strength (g1)
+#communities <- cluster_louvain(g1)
+#communities <- cluster_fast_greedy(g1)
+#communities <- cluster_infomap(g1)
+communities <- cluster_label_prop(g1)
+
+
+#communities <- cluster_edge_betweenness(g1)
+
+
+# Plot the graph with community colors
+#plot(communities, g1, vertex.size = strength(g), vertex.label = NA, asp = 0, edge.arrow.size = 0.5)
+#layout <- layout.star(g1, center = 1)
+layout <- layout_with_graphopt(g1 )
+
+
+plot(g1, layout = layout, vertex.color = communities$membership, vertex.size = V(g1)$str*3)
+```
+
+```{r}
+graph_edges <- data.frame(read_delim("sym_3star_9"  , delim = " ", col_names = FALSE, show_col_types = FALSE ))
+```
+
+```{r}
+
+# Number of iterations
+num_iterations <- 100
+
+#load graph and SHUFFLE (influences the results in case of uncertainty)
+shuffled_graph_edges <- graph_edges[sample(1:nrow(graph_edges)), ]
+g1 <- graph_from_data_frame(shuffled_graph_edges, directed = FALSE)
+
+num_nodes <- vcount(g1)
+  
+# Run community detection algorithm and calculate probability matrix for each iteration
+
+# Create an empty matrix to store the probabilities
+probability_matrix <- matrix(0, nrow = num_nodes, ncol = num_nodes)
+  
+for (iter in 1:num_iterations) {
+
+
+  # Run community detection algorithm
+  # communities <- cluster_louvain(g1, resolution = sample(c(1.0, 1.2, 0.8), 1))
+  communities <- cluster_label_prop(g1)
+  #communities <- cluster_walktrap(g1)
+  # communities <- cluster_edge_betweenness(g1)
+  # communities <- cluster_fast_greedy(g1)
+  #communities <- cluster_leading_eigen(g1)
+  #communities <- cluster_infomap(g1)
+
+  
+  # Iterate over all pairs of nodes
+  for (i in 1:num_nodes) {
+    for (j in 1:num_nodes) {
+      # Check if nodes i and j belong to the same community
+      if (membership(communities)[i] == membership(communities)[j]) {
+        probability_matrix[i, j] <- probability_matrix[i, j] + 1
+      }
+    }
+  }
+}
+
+diag(probability_matrix) <- 0
+
+# Calculate the average probability matrix
+p_matrix <-   probability_matrix / num_iterations
+
+max_by_row <- apply(p_matrix, 1, max)
+print(max_by_row)
+```
+
+
+
+
+
+# ring of cliques
+https://github.com/ftheberge/Ensemble-Clustering-for-Graphs/blob/master/Notebooks/ECG.ipynb
+
+
+```{python}
+import igraph as ig
+import numpy as np
+from sklearn.metrics import adjusted_rand_score as ARI
+from sklearn.metrics import adjusted_mutual_info_score as AMI
+from sklearn.metrics import normalized_mutual_info_score as NMI
+import scipy.stats as ss
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+```
+
+
+```{python}
+import itertools
+## ring of cliques igraph with n cliques of size m with e edges between contiguous cliques
+def ringOfCliques(n=24, m=5, e=1):
+    size = n*m
+    g = ig.Graph()
+    for i in range(size):
+        g.add_vertex(str(i))
+    ## ring of cliques
+    for i in range(0, size, m):
+        ## cliques    
+        for j in range(i,i+m-1,1):
+            for k in range(j+1,i+m,1):
+                g.add_edge(str(j),str(k),type='intra')
+        ## ring
+        if i>0:
+            ## all pairs (i,i+1..i+m-1) and (i-m,i-m+1..i-m+m-1)
+            a = np.arange(i,i+m,1)
+            b = np.arange(i-m,i,1)
+        else:
+            a = np.arange(0,m,1)
+            b = np.arange(size-m,size,1)
+        ## all 2-ples: pick e
+        l = list(itertools.product(a,b))
+        arr = np.empty(len(l), dtype='O')
+        arr[:] = l
+        x = np.random.choice(arr,size=e,replace=False)
+        for j in x:
+            g.add_edge(str(j[0]),str(j[1]),type='extra')
+    return(g)
+```
+
+ 
+ 
+```{python}
+import numpy as np
+## number of communities: ML vs ECG vs IM
+## n 5-cliques for 4 <= n <= 48
+## number of linking edges from 1 to 5
+N = np.arange(4,49,4) ## number of cliques
+ML=[]
+IM=[]
+EC=[]
+REP=10 ## take average over several repeats
+for e in range(5): ## number of linking edges
+    ML.append([])
+    IM.append([])
+    EC.append([])
+    for n in N:
+        ml=0
+        im=0
+        ec=0
+        for ctr in range(REP):
+            g = ringOfCliques(n=n, m=5, e=e+1)
+            ml = ml + max(g.community_multilevel().membership)+1
+            im = im + max(g.community_infomap().membership)+1
+            ecg = g.community_ecg(ens_size=32)
+            ec = ec + max(ecg.membership)+1
+        ML[e].append(ml/REP)
+        EC[e].append(ec/REP)
+        IM[e].append(im/REP)
+```
+ 
+```{python}
+## Plot the results
+fig = plt.figure(1, figsize=(16,4))
+with sns.axes_style('whitegrid'):
+    for e in range(5):
+        plt.subplot(1,5,e+1)
+        plt.plot(N,EC[e],'-', c='b',label='ECG')
+        plt.plot(N,ML[e],'--', c='g',label='ML')
+        plt.plot(N,IM[e],':', c='r',label='IM')
+        plt.xlabel('Number of 5-cliques (n)', fontsize=12)
+        if e==0:
+            plt.ylabel('Number of communities found', fontsize=12)
+        plt.legend(fontsize=12)
+        plt.title(str(e+1)+' linking edge(s)', fontsize=14)
+```
+
+
