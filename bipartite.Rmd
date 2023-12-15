@@ -1,0 +1,118 @@
+---
+title: "Untitled"
+author: "Fabio Morea"
+date: "2023-07-08"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+library(igraph)
+library(tidyverse)
+```
+
+```{r}
+PO = read_csv('PO.csv')
+projects <- PO$project
+pnames <- unique(projects)
+np<- length(pnames)
+orgs<- PO$org
+onames<-unique(orgs)
+no <- length(onames)
+B = matrix(0, np, no)
+rownames(B) <- pnames
+colnames(B)<- onames
+
+for (i in 1:nrow(PO)){
+    B[ PO[i,]$project, PO[i,]$org ] <- PO[i,]$weight
+}
+B
+```
+
+```{r}
+g <- igraph::graph.incidence(B, weighted = TRUE)
+g <- as.undirected(g)
+total_weight <- sum(B)
+
+
+colrs <- c("green", "white")[V(g)$type + 1L]
+plot(g, vertex.color = colrs, vertex.size = 20, layout = layout.bipartite, edge.width = E(g)$weight)
+plot(g, vertex.color = colrs, vertex.size = 20, edge.width = E(g)$weight, edge.label = E(g)$weight)
+
+```
+```{r}
+P <- B %*% t(B)  
+
+gp <- igraph::graph_from_adjacency_matrix(P, weighted = TRUE)
+gp <- as.undirected(gp)
+gp<-igraph::simplify(gp, 
+                      remove.multiple = TRUE,
+                      remove.loops = FALSE,
+                      edge.attr.comb = "sum")
+plot(gp, vertex.color = colrs, vertex.size = 20, edge.label = E(gp)$weight)
+P
+
+```
+
+For an undirected graph with adjacency matrix A
+, it is straightforward to define the normalized adjacency matrix as
+A′=D−1/2AD−1/2
+where D is the diagonal matrix of degrees of the nodes of the graph
+
+
+```{r}
+orgs <- t(B) %*% B 
+D = matrix(0, nrow(orgs), ncol(orgs))
+degr <- colSums(orgs != 0)-1
+diag(D) <-  1/degr
+
+weigths <- B%*%D
+
+go <- igraph::graph_from_adjacency_matrix(orgs, weighted = TRUE)
+go <- as.undirected(go)
+go<-igraph::simplify(go, remove.multiple = TRUE,remove.loops = TRUE,edge.attr.comb = "sum")
+E(go)$weight<-0
+for (p in 1:nrow(weigths)) {
+    ww <- weigths[p, ]
+    for (i in 1:nrow(D)) {
+        for (j in i:nrow(D)) {
+            if (i != j) {
+                #print(paste(p,i,j))
+                E(go)[i  %--% j]$weight  <- E(go)[i  %--% j]$weight + ww[i] + ww[j]
+            }
+        }
+    }
+}
+
+
+plot(go, vertex.color = 'white', vertex.size = 20, edge.width = E(go)$weight, layout = layout.graphopt)
+#, edge.label = E(go)$weight)
+
+ sum(E(go)$weight)
+
+```
+
+```{r}
+plot(igraph::cluster_louvain(go), go)
+     
+```
+ 
+
+```{r}
+plot(igraph::label.propagation.community(go), go)
+```
+```{r}
+V(go)$name
+count <- 0
+for (k in 1:1000){
+    m <- igraph::label.propagation.community(go)$membership
+    if (m[10] == m[4]) {count <- count+1}
+     
+}
+print(count/1000)
+```
+
+

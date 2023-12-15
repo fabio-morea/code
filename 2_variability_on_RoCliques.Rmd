@@ -22,133 +22,194 @@ source('./functions_graph_analysis.R')
 
 ```{r}
 getwd()
-g<-read_graph('./benchmark/ring_of_cliques/ring_of_cliques_4_6_C.gml', format = 'gml')
+
+
+g<-read_graph('./benchmark/ring_of_cliques/ring_of_cliques_4_6_C_B.gml', format = 'gml')
+V(g)$name <-V(g)$id
+V(g)$core <- coreness(g)
 plot(g)
 print(g)
 
 ```
 
-The mixing parameter μ denotes the fraction of inter-community edges of
-the network. When μ\>0.5 , there are more inter-community links than
-intra-community links, which indicates that there might be no obvious
-communities in the network.
-
-```{r}
-empirical_mu(g)
-comms <- find_communities (g, method = 'ML')
-plot(comms,g, vertex.label=V(g)$community, vertex.size = 20)
-analyse_communities(g, comms )
-```
-
-
-```{r}
-comms <- find_communities (g, method = 'IM')
- plot(comms,g, vertex.label=V(g)$community, vertex.size = 20)
-analyse_communities(g, comms )
-```
-
-```{r}
-methods <- c('IM','ML','LP','FG' ,'WT')
-```
-
-```{r}
-tmp_comms <- find_communities(g, method = "FG", verbose = FALSE)
-results <- analyse_communities(g, tmp_comms, verbose = TRUE)
-```
-
 ```{r}
 
 
-find_communities_N_times <- function(n_trials,
-                                     methods,
-                                     mu_values,
-                                     filename_summary,
-                                     filename_membership) {
-    results_n_trials <- data.frame()
-    membership_matrix <- c()
+plot_roc <- function(g, cons_communities) {
+  
+  vertex_colors <- rep( "orange", vcount(g))
+  vertex_colors <- if_else (V(g)$gamma < 0.60,  "yellow",vertex_colors)
+  vertex_colors <- if_else (V(g)$gamma < 0.1,  "white",vertex_colors)
+   
+      
+  plot(cons_communities,g,  
+       vertex.label=V(g)$gamma, 
+       vertex.size = 30, 
+       edge.width = E(g)$weight)
+  
+  
+  plot(g,  layout = layout_with_kk,
+       vertex.color =vertex_colors,
+       vertex.label=V(g)$gamma, 
+       vertex.size = 30, 
+       edge.width = E(g)$weight)
+  
+  table(V(g)$gamma)
+  
+  hist(V(g)$gamma)
+  
+  plot(V(g)$core ,V(g)$gamma)
 
-        for (i in 1:n_trials) {
-            for (met in methods) {
-                tmp_comms <- find_communities(g, method = met)
-                results_single <- analyse_communities(g, tmp_comms)
-                results_n_trials = rbind(results_n_trials, results_single)
-                membership_matrix <- cbind(membership_matrix, tmp_comms$membership)
-            }
-        }
-    
-    membership_n_trials <- data.frame(membership_matrix)
-    membership_n_trials %>% write_csv(filename_membership)
-    results_n_trials %>% write_csv(filename_summary)
-    return(1)
 }
+```
+
+
+using t = 1000 and shuffle = TRUE we achieve better results:
+uncertainty on central node = 75% and uncertainty on bridges = 50%
+```{r}
+
+# Gamma0 is the parameters that deterines the strategy for outliers
+# nodes with gamma < gamma0 will make single-node communities
+# gamma0 = 0.8 will create more outliers i.e. HIGLIGHT OUTLIERS
+# gamma0 = 0.1 will create larger communities with less outliers, i.e. AGGREGATE OUTLIERS
+# 
+g <- make_ring_of_cliques (
+      num_cliques = 4, 
+      clique_size = 6, 
+      add_center = T, 
+      add_bridges = T) 
+
+plot(g)
+CC <- consensus_community_detection (g, 
+                                     t=100, 
+                                     gamma_lim = 0.6,
+                                     method='LV', 
+                                     resolution=c(1.0), 
+                                     shuffle=T) 
+V(g)$gamma <-CC$gamma
+V(g)$cons_comm_label<-CC$membership
+
+plot_roc(g, CC)
+
+
+``` 
+
+```{r}
+
+CC <- consensus_community_detection (g, 
+                                     t=1000, 
+                                     gamma_lim = 0.1,
+                                     method='LV', 
+                                     resolution=c(1.0), 
+                                     shuffle=TRUE) 
+V(g)$gamma <-CC$gamma
+V(g)$cons_comm_label<-CC$membership
+
+plot_roc(g, CC)
+```
+
+
+
+```{r}
  
+# Gamma0 is the parameters that deterines the strategy for outliers
+# nodes with gamma < gamma0 will make single-node communities
+# gamma0 = 0.9 will HIGLIGHT OUTLIERS
+# gamma0 = 0.2 will AGGREGATE OUTLIERS
+# 
 
-find_communities_N_times (g, 
-                          n_trials=30,
-                          methods=c('IM','ML','LP','FG','LV' ,'WT'),
-                          filename_summary = 'ROC_n_trials_summary_results.csv',
-                          filename_membership = 'ROC_n_trials_membership.csv')
+g<-read_graph('./benchmark/ring_of_cliques/ring_of_cliques_4_6_C_B.gml', format = 'gml')
+V(g)$name <-V(g)$id
+V(g)$core <- coreness(g)
 
-membership_matrix <- as.matrix(read_csv('ROC_n_trials_membership.csv'))
-nmis <- data.frame()
+for (gamma_lim in seq(0.1,0.9, 0.05)){
 
-membership_matrix_mu <- membership_matrix
-mts <- c("FG", "IM", "LP", "ML", "WT")
-for (met1 in 1:length(mts)) {
-  for (met2 in 1:length(mts)) {
-    if (met1 != met2) {
-      mm1 <- mts[met1]
-      mm2 <- mts[met2]
-      mb1 <- membership_matrix_mu[, mts == mm1]
-      mb2 <- membership_matrix_mu[, mts == mm2]
-      #print(paste(mui,"calculating NMI between methods", met1, met2))
-      for (i in 1:ncol(mb1)) {
-        for (j in i:ncol(mb2)) {
-          if (i != j) {
-            nmi_m1_m2 <- aricode::NMI(mb1[, i], mb2[, j])
-            nmis <-
-              rbind(nmis, data.frame(mm1, mm2, met1, met2, nmi_m1_m2))
-          }
-        }
-      }
-    }
-  }
+
+CC <- consensus_community_detection (g, 
+                                     t=100, 
+                                     gamma_lim = gamma_lim,
+                                     method='ML', 
+                                     resolution=c(1.0), 
+                                     shuffle=TRUE)  
+
+V(g)$community <- CC$membership
+mmuu <- empirical_mu(g )
+nc = max(CC$membership)
+print(gamma_lim)
+print(paste(nc, mmuu, CC$modularity))
+print("-")
+#plot(CC,g,vertex.label=CC$gamma, vertex.size = 30, edge.width = E(g)$weight)
+
 }
 
-nmis %>% write_csv('ROC_NMIs.csv')
-```
+``` 
+  
+
+
 
 ```{r}
-nmis <- read_csv('ROC_NMIs.csv')
-nmis  %>% select(mm1,mm2,nmi_m1_m2) %>%
-    group_by(mm2)%>%
-    ggplot(aes(x=mm1, y=nmi_m1_m2, color=mm2))+
-    geom_boxplot( )
+ 
+# Gamma0 is the parameters that deterines the strategy for outliers
+# nodes with gamma < gamma0 will make single-node communities
+# gamma0 = 0.9 will HIGLIGHT OUTLIERS
+# gamma0 = 0.2 will AGGREGATE OUTLIERS
+# 
+g<- read_graph('./LMnetwork/LMN.csv', format = 'graphml')
+#g<-as.undirected( g , mode = 'each')
+#g<-igraph::simplify(g, remove.multiple = TRUE, edge.attr.comb = igraph_opt("sum"))
+#g <- delete.edges (g, which (E(g)$weight < .1))
+#V(g)$core <- coreness(g)
 
-```
+for (gamma_lim in seq(0.1,0.9, 0.05)){
+
+
+CC <- consensus_community_detection (g, 
+                                     t=100, 
+                                     gamma_lim = gamma_lim,
+                                     method='ML', 
+                                     resolution=c(1.0), 
+                                     shuffle=TRUE)  
+V(g)$community <- CC$membership
+mmuu <- empirical_mu(g )
+nc = max(CC$membership)
+print(gamma_lim)
+print(paste(nc, mmuu, CC$modularity))
+print("-")
+#plot(CC,g,vertex.label=CC$gamma, vertex.size = 30, edge.width = E(g)$weight)
+
+}
+
+``` 
+  
+# analysis of order bias 
 
 ```{r}
+#methods <- c('IM','ML','LP','FG' ,'WT', 'LE', 'LD')
+methods <- c('IM','ML','FG' ,'WT', 'LE')
 
 
-center_id <- vcount(g)
+
+
+g<-read_graph('./benchmark/ring_of_cliques/ring_of_cliques_4_6_C.gml', format = 'gml')
+
+
+g <- igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE ) )
+
+center_id <- which(V(g)$community=="A")
 
 results <- data.frame()
 
+shuff = "fixed"
 for (met in methods) {
-    for (i in 1:1000) {
+    for (i in 1:100) {
         comms <- find_communities(g, met)
         nc <- max(comms$membership)
         m_center <- comms$membership[center_id]
-        m_bridge1 <- comms$membership[center_id - 1]
-        results <- rbind(results, data.frame(met, nc, m_center, m_bridge1))
+        results <- rbind(results, data.frame(met, shuff, nc, m_center))
 
     }
 }
-str(results)
  
-```
-
-```{r}
 table_center <- results %>% 
     mutate(algorithm = met)%>% select(-met)%>%
     group_by(algorithm, m_center) %>%
@@ -161,49 +222,291 @@ table_center <- results %>%
 
 print(table_center)
 
-```
 
 
+##shuffle ids before comm detection
+
+shuff = "shuffled"
+g_shuffled <- igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE ) )
 
 
+for (met in methods) {
+    for (i in 1:100) {
+        g_shuffled <- igraph::permute(g_shuffled, sample(1:vcount(g), size = vcount(g), replace = FALSE ) )
+        center_id <- which(V(g)$community=="A")
 
+        comms <- find_communities(g_shuffled, met)
+        nc <- max(comms$membership)
+        m_center <- comms$membership[center_id]
+        results <- rbind(results, data.frame(met, shuff, nc, m_center))
 
+    }
+}
 
-
-```{r}
-latex_table_center <- table_center %>% kable(digits = 2, format = "latex", caption = "Relative frequency of membership labels", table.envir = "table*")
-cat(latex_table_center,  file = 'table1.tex')
-```
-
-
-```{r}
-table_bridge <- results %>% 
+table_center <- results %>% 
     mutate(algorithm = met)%>% select(-met)%>%
-    group_by(algorithm, m_bridge1) %>%
+    group_by(algorithm, m_center) %>%
   summarise(n = n()) %>%
   mutate(freq =  (n / sum(n))) %>%
     
     select(-n)%>%
-    arrange(m_bridge1)%>%
-    pivot_wider(names_from = m_bridge1, values_from = freq, values_fill = 0.00) 
+    arrange(m_center)%>%
+    pivot_wider(names_from = m_center, values_from = freq, values_fill = 0.00) 
 
-print(table_bridge)
+print(table_center)
+
+results %>% ggplot(aes(y = m_center, fill = met))+geom_bar()+facet_grid(shuff~met)+ theme_light()+ geom_vline(xintercept = 25) + theme(aspect.ratio = .7)
+results %>% ggplot(aes(y = m_center, fill = met))+geom_bar()+facet_grid(met~shuff)+ theme_light() + geom_vline(xintercept = 25) + theme(aspect.ratio = .15)
+
+
+```
+
+
+```{r}
+
+make_clique <- function(clique_size, comm_label) {
+  G <- graph.empty(n = clique_size)
+  edges <- t(combn(1:clique_size, 2))
+  for (e in 1:nrow(edges)) {
+      G <- add_edges(G, edges[e, ])
+  }
+  V(G)$community <- comm_label
+  
+  return(as.undirected(G))
+}
+
+make_ring_of_cliques <- function(num_cliques,
+                                 clique_size,
+                                 add_center = TRUE,
+                                 add_bridges = TRUE) {
+  G <- as.undirected(graph.empty())
+  
+  for (i in 1:num_cliques) {
+    next_clique <- make_clique(clique_size, comm_label = paste0("C", i))
+    G <- G + next_clique
+  }
+  
+  
+  b <- vcount(G)
+  if (add_bridges) {
+    G <- add_vertices(G, num_cliques)
+  }
+  
+  
+  for (j in 1:(num_cliques)) {
+    b <- b + 1
+    b_start <- (j-1) * clique_size +1
+    b_end <- b_start + clique_size +1
+    if (b_end > (clique_size * num_cliques)) {b_end <- 2}
+    if (add_bridges) {
+      G <- add_edges(G, c(b_start, b))
+      G <- add_edges(G, c(b, b_end))
+      V(G)$community[b] <- paste0("B", j)
+    } else {
+      G <- add_edges(G, c(b_start, b_end))
+    }
+    
+  }
+  
+  if (add_center) {
+    G <- add_vertices(G, 1)
+    id_center <- vcount(G)
+    V(G)$community[id_center] <- "A"
+    for (j in 1:(num_cliques)) {
+      c_start <- (j-1) * clique_size +3
+      G <- add_edges(G, c(c_start , id_center))
+    }
+    
+  }
+  
+  
+  E(G)$weight <- 1.0
+  V(G)$name <- 1:vcount(G)
+  V(G)$id <- 1:vcount(G)
+  V(G)$core <- coreness(G)
+  
+  #write_graph(G, paste0(filename, '.gml'), format = 'gml')
+  
+  return(G)
+  
+}
+
+```
+
+
+
+```{r}
+results = data.frame()
+
+```
+
+```{r}
+clsize = 6
+shuffle = TRUE
+gamma_lim = 0.0
+t = 1 #SINGLE
+for (ncliques in 3:50){
+  
+  g <- make_ring_of_cliques (
+    num_cliques = ncliques, 
+    clique_size = clsize, 
+    add_center = T, 
+    add_bridges = T) 
+  
+
+
+  CC <- consensus_community_detection (g, 
+                                     t=t, 
+                                     gamma_lim = gamma_lim,
+                                     method='LV', 
+                                     resolution=c(1.0), 
+                                     shuffle=shuffle) 
+  V(g)$gamma <-CC$gamma
+  V(g)$cons_comm_label<-CC$membership
+  ncomms <- max(CC$membership)
+  mu <- empirical_mu(g)
+  print(paste("Number of cliques: ", ncliques))
+  gamma_bridges <- c()
+  for (j in 1:clsize){
+    gamma_bridges = cbind(gamma_bridges, c(V(g)$gamma[ncliques*(clsize+1)-j]))
+  }
+  gamma_bridge<- mean(gamma_bridges)
+  
+  gamma_center = V(g)$gamma[ncliques*(clsize+1)+1]
+  results <- rbind(results, data.frame(ncliques, clsize, t, gamma_lim, shuffle, mu, ncomms, gamma_bridge, gamma_center))
+  
+  
+}
+results %>% ggplot(aes(x=ncliques, y=ncomms, group = t))+theme_light()+
+  geom_point()+geom_line()
+```
+
+
+
+```{r}
+ 
+test_rings <- function(ncliques_range, clsize, t, gamma_lim, shuffle, group_outliers, results) {
+  results <- data.frame()
+  for (ncliques in 3:ncliques_range){
+    
+    g <- make_ring_of_cliques (
+      num_cliques = ncliques, 
+      clique_size = clsize, 
+      add_center = T, 
+      add_bridges = T) 
+  
+    CC <- consensus_community_detection (g, 
+                                       t=t, 
+                                       gamma_lim = gamma_lim,
+                                       method='LV', 
+                                       resolution= c(1.0), 
+                                       shuffle=shuffle) 
+    #group
+    if (group_outliers){
+          CC$membership[ CC$gamma > 0.01 ] <- 0
+          V(g)$gamma <-CC$gamma
+          V(g)$cons_comm_label<-CC$membership
+          ncomms <- max(CC$membership)
+    }
+
+    
+    #results
+    mu <- empirical_mu(g)
+    #print(paste("Number of cliques: ", ncliques))
+    gamma_bridges <- c()
+    for (j in 1:ncliques){
+      gamma_bridges = rbind(gamma_bridges, c(V(g)$gamma[ncliques*(clsize+1)-j+1]))
+    }
+    gamma_bridge<- mean(gamma_bridges)
+    print(gamma_bridges)
+    print(V(g)$gamma)
+    
+    gamma_center = V(g)$gamma[ncliques*(clsize+1)+1]
+    results <- rbind(results, data.frame(ncliques, clsize, t, gamma_lim, shuffle, mu, ncomms, gamma_bridge, gamma_center))
+    
+    
+  }
+  results$consensus <- if_else(results$t == 1, "Single", "Consensus")
+  results %>% ggplot(aes(x=ncliques, y=ncomms, group = consensus, color = consensus))+theme_light()+geom_point()+geom_line()+
+    geom_abline(slope = 1, intercept = 0)
+  return(results)
+}
 ```
 
  
 
 ```{r}
-table_nc <- results %>% 
-    mutate(algorithm = method)%>% select(-method)%>%
-    group_by(algorithm, nc) %>%
-  summarise(n = n()) %>%
-  mutate(freq =  (n / sum(n))) %>%
-    
-    select(-n)%>%
-    arrange(nc)%>%
-    pivot_wider(names_from = nc, values_from = freq, values_fill = 0.00) 
+results1<- data.frame()
+for (l in 1:10){
+  results1<- rbind(results1,test_rings(ncliques_range=50, clsize=6, t=1, gamma_lim= 0.0, shuffle=T, group_outliers = T, results))
+}
+results2<- test_rings(ncliques_range=50, clsize=6, t=1000, gamma_lim= 0.6, shuffle=T, group_outliers = T, results)
+results3b<- test_rings(ncliques_range=50, clsize=6, t=10, gamma_lim= 0.6, shuffle=F,  group_outliers = T, results)
 
-print(table_nc)
+results<-rbind(results1, results2, results3)
+
+
 ```
 
+```{r}
+p1<-rbind(results2, results3) %>%ggplot(aes(x=ncliques, y=gamma_bridge, shape = shuffle, color = shuffle))+theme_light()+
+  geom_point(size = 2)+geom_line( size = 1)+
+    scale_color_manual(values=c('red','black'))+
+  scale_shape_manual(values = c(22,1))+
+  xlab("Number of cliques")+ ylab("gamma (average Bridge Nodes)")+
+  geom_hline(yintercept = 0.5, color = "darkgreen", linetype = "dashed", size = 1)
+p1<-p1+theme(aspect.ratio = 1.5) + theme(legend.position = c(0.75, 0.25)) +labs(color = 'shuffle', shape = 'shuffle')
 
+p1
+
+```
+
+```{r}
+p2<-rbind(results2, results3) %>%ggplot(aes(x=ncliques, y=gamma_center, shape = shuffle, color = shuffle))+theme_light()+theme(legend.position = 'right')+
+  geom_point(size = 2)+geom_line( size = 1)+
+    scale_color_manual(values=c('red','black'))+
+  scale_shape_manual(values = c(22,1))+
+  xlab("Number of cliques")+ ylab("gamma (Central Node)")
+p2<-p2+geom_line( size = 1, color = "darkgreen",  linetype = "dashed",aes(x = ncliques, y = (1-(1/ncliques))))
+p2<-p2+theme(aspect.ratio = 1.5) + theme(legend.position = c(0.75, 0.25)) +labs(color = 'shuffle', shape = 'shuffle')
+
+  p2
+```
+ 
+```{r}
+p3<-rbind(results2, results3) %>% ggplot(aes(x=ncliques, y=ncomms,  color = consensus, shape = consensus))+theme_light()+
+  geom_point(size = 3)+geom_line(size = 1)+
+    geom_abline(slope = 1, intercept = 0,color = "darkgreen",  linetype = "dashed", size = 1)+
+     scale_color_manual(values=c('black','blue'))+
+  scale_shape_manual(values = c(22,1))+
+    xlab("Number of cliques")+ ylab("Number of communities")
+
+
+p3<-p3+geom_point(data = results1,aes(x = ncliques, y = ncomms))
+
+tmp <-results1%>%group_by(ncliques, consensus) %>% summarize(nc = mean(ncomms))
+p3<-p3+geom_line(data = tmp,aes(x = ncliques, y = nc))+geom_line()
+p3<-p3+theme(aspect.ratio = 1.5) + theme(legend.position = c(0.35, 0.80))+labs(color = '', shape = '')
+p3
+```
+
+```{r}
+grid.arrange(p3 , p1, p2, ncol = 3 ) 
+```
+
+```{r}
+
+for (ncliques in 3:10){
+  
+  g <- make_ring_of_cliques (
+    num_cliques = ncliques, 
+    clique_size = 6, 
+    add_center = T, 
+    add_bridges = T) 
+  print(empirical_mu(g))
+}
+```
+  
+   
+  
+  

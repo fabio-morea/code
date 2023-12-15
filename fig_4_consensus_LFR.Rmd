@@ -1,0 +1,377 @@
+---
+title: "consensus ML on LFR"
+author: "Fabio Morea"
+date: "2023-065-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(ggpubr)
+library(aricode) # NMI 
+source('./functions_graph_analysis.R')
+```
+
+# Method proposed by LF 2019 
+recursively apply method A until results converge
+ 
+```{r}
+recursive_consensus <- function(M, threshold , met, t) {
+  j = 1
+  while (j <= 2) {
+    co_occ_matrix <-  normalized_co_occurrence((M))
+    
+    # all entries of co occurrenc ematrix below a threshold are set to zero
+    co_occ_matrix[co_occ_matrix < threshold] <- 0
+    
+    g_2 <-
+      graph_from_adjacency_matrix(
+        co_occ_matrix,
+        diag = FALSE,
+        weighted = TRUE,
+        mode = "upper"
+      )
+    print(table(E(g_2)$weight))
+    hist(E(g_2)$weight)
+    
+    V(g_2)$id <- V(g)$id
+    
+    cons_communities_2 <- cluster_louvain(g_2, resolution = resol)
+    
+    nmi = round(aricode::NMI(
+      as.factor(cons_communities_2$membership),
+      as.factor(comm_built_in)
+    ), 3)
+    nc_norm <-
+      round(length(table(cons_communities_2$membership)) / nc_builtin, 4)
+    summary_n_trials_cons <-
+      rbind(summary_n_trials_cons, data.frame(mu, met, j, nmi, nc_norm))
+    
+    
+    if (length(table(E(g_2)$weight)) == 1) {
+      break
+    } # reached consensus
+
+    M  <- find_communities_repeated (g_2, n_trials = t, method = met)
+    
+    j <- j + 1
+    print(paste(j, nmi, nc_norm))
+    
+    
+  }
+}
+
+```
+
+
+```{r}
+path <- "./benchmark/LFR/LFR_benchmark_"
+mui = seq(5,60,5)
+n_trials = 2
+threshold = 0.60
+method_base = 'LV'
+shuffle <- TRUE
+resol = c(1.0)
+```
+
+```{r}
+
+summary_n_trials_cons <- data.frame()
+nc_builtin <- c()
+
+for (mu in mui) {
+  print(paste("MU = ", mu))
+  j<-0
+  methods = c('LV','LD','LP','IM','WT')
+  for (method_base in methods){
+    print(paste('**** method : ', method_base))
+  
+
+  method <- paste0(method_base, '_ST')
+  print( method)
+  g <- load_benchmark_network(mui = mu,path = path, verbose = FALSE)
+  V(g)$community <- V(g)$comm_built_in
+  mu_built_in = round(empirical_mu(g),3)
+  comm_built_in <- data.frame(name = V(g)$name, label_built_in = V(g)$comm_built_in)
+  nc_builtin <- max(comm_built_in$label_built_in)
+  
+  # single trials
+  M <- data.frame(name = V(g)$name)
+  
+  for (i in 1:n_trials) {
+    if (shuffle == TRUE) {
+      gs <- igraph::permute(g, sample(1:vcount(g),size = vcount(g),replace = FALSE))
+    } else {
+      gs <- g
+    }
+    comms <-find_communities(gs, method = method, r = resol)
+    V(gs)$community <- comms$membership
+    mu_emp <- round(empirical_mu(gs),3)
+    comm_labeled <-data.frame(name = V(gs)$name, memb = comms$membership)
+    M <-inner_join(M ,  comm_labeled, by = 'name')
+    colnames(M) <- c('name', seq(1:i))
+    
+    membs <- data.frame( name = M[,1], label_single = M[,i+1])
+    membs <- membs %>% merge(comm_built_in, by = 'name')
+    nmi = round(aricode::NMI(as.factor(membs$label_single),as.factor(membs$label_built_in)), 3)
+    nc_norm <-round(length(table(membs$label_single)) / nc_builtin, 4)
+    #print(nc_norm)
+    
+    met <- method
+    summary_n_trials_cons <-rbind(summary_n_trials_cons, data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm))
+    
+  }
+  
+  M <- M %>% arrange(name)
+
+
+  ## CONSENSUS GAMMALIM
+  #gamma_lim = 0.50
+  #method <- paste0(method_base, '_cons05')
+  #print(method)
+  #nco <- normalized_co_occurrence(M)
+  #CC <- consensus_communities(nco,gamma_lim=gamma_lim)
+
+  
+  #membs <- data.frame( name = CC$name, label_cons = CC$cons_comm_label, gamma = CC$gamma)
+  #membs <- membs %>% merge(comm_built_in, by = 'name')
+  #membs <- membs %>% mutate(nn = as.numeric(substr(membs$name,2,5) ))%>% arrange(nn)
+  #nmi = round(aricode::NMI(as.factor(membs$label_cons),as.factor(membs$label_built_in)), 3)
+  #nc_norm <-round(length(table(membs$label_cons)) / nc_builtin, 4)
+  #V(g)$community <- membs$label_cons
+  #mu_emp <- round(empirical_mu(g),6)
+  #met <- method
+  #print(paste(">>>>>>>>>>>>>>>>>>>>",method, gamma_lim, mu, mu_built_in, mu_emp))
+  #summary_n_trials_cons <-rbind(summary_n_trials_cons, data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm))
+  #print(paste(nmi, nc_norm))
+  
+
+  
+  
+  
+  ## CONSENSUS GAMMALIM
+  for (ggl in c(0.5,0.8)){
+    gamma_lim = ggl
+    method <- paste0(method_base, '_cons',ggl)
+    print(method)
+    nco <- normalized_co_occurrence(M)
+    CC <- consensus_communities(nco,p=gamma_lim)
+    membs <- data.frame( name = CC$name, label_cons = CC$cons_comm_label, gamma = CC$gamma)
+    membs <- membs %>% merge(comm_built_in, by = 'name')
+    membs <- membs %>% mutate(nn = as.numeric(substr(membs$name,2,5) ))%>% arrange(nn)
+    nmi = round(aricode::NMI(as.factor(membs$label_cons),as.factor(membs$label_built_in)), 3)
+    nc_norm <-round(length(table(membs$label_cons)) / nc_builtin, 4)
+    V(g)$community <- membs$label_cons
+    mu_emp <- round(empirical_mu(g),6)
+    met <- method
+    
+    print(paste(">>>>>>>>>>>>>>>>>>>>",method, gamma_lim, mu, mu_built_in, mu_emp))
+    summary_n_trials_cons <-rbind(summary_n_trials_cons, data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm))
+    print(paste(nmi, nc_norm))
+    
+  }
+   
+  ## CONSENSUS LF 
+   
+  method <- paste0(method_base, '_consLF')
+  print( method)
+  j = 1
+  while (j <= 10) {
+    co_occ_matrix <-  normalized_co_occurrence((M))
+    
+    # all entries of co occurrenc ematrix below a threshold are set to zero  
+    co_occ_matrix[ co_occ_matrix < threshold ] <- 0
+    
+    g_2 <- graph_from_adjacency_matrix(co_occ_matrix, diag = FALSE, weighted=TRUE, mode="upper")
+    print(table(E(g_2)$weight))
+    #hist(E(g_2)$weight)
+    
+    
+    V(g_2)$id <- V(g)$id
+
+    CCR <- find_communities(g_2,method = method_base)
+    
+     membs <- data.frame( name = CCR$name, label_cons = CCR$membership)
+     membs <- membs %>% merge(comm_built_in, by = 'name')
+     nmi = round(aricode::NMI(as.factor(membs$label_cons),as.factor(membs$label_built_in)), 3)
+     nc_norm <-round(length(table(membs$label_cons)) / nc_builtin, 4)
+     V(g_2)$community <- membs$label_cons
+     E(g_2)$weight <- 1#to calculate empirical mu
+     mu_emp <- round(empirical_mu(g_2),6)
+     met <- method
+
+    if (length(table(E(g_2)$weight)) == 1){ break } # reached consensus
+
+    M  <-  find_communities_repeated (g_2,n_trials = t,method = method_base)
+    j <- j+1
+    print(paste(j, nmi, nc_norm))
+    
+  }
+  print(paste(mu, mu_built_in, mu_emp))
+  print(paste(">>>>>>>>>>>>>>>>>>>>",method, gamma_lim, mu, mu_built_in, mu_emp))
+
+  summary_n_trials_cons <-rbind(summary_n_trials_cons, data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm))
+ 
+
+  }
+}
+summary_n_trials_cons %>% write_csv('./results/results_cons_comm_detection_ALL.csv')
+ 
+```
+# read data from file
+
+```{r}
+library(tidyverse)
+library(ggpubr)
+
+df <- read_csv('./results/results_cons_comm_detection_ALL.csv')
+
+df <- summary_n_trials_cons %>% 
+  mutate(mu = mu/100)%>%
+  mutate(alg = substr(met, 1,2)) %>%
+  mutate(cons = substr(met, 4,10)) %>%
+  filter(cons != 'cons0.2')
+ 
+```
+#plot
+
+```{r}
+
+
+row_3_plots <- function(df1, clegend, title){
+  
+p1 <- ggplot(data = df1, aes(x = mu_built_in, y = mu_emp,  shape = cons, color = cons))+
+  geom_point(size  =2)+
+  scale_shape_manual(title, values = c(15,17,1,4))+
+  scale_color_manual(title, values = c("blue","darkgreen","black","gray"))+
+  ylim(0,0.7)+xlim(0,0.7)+
+  geom_abline(slope = 1, intercept = 0, color = 'darkgreen', size = .5, linetype = "dashed")+
+  geom_segment(x =0, xend = 0.5, y = 0.5, yend = 0.5, color = "red", linetype = "dashed")+
+  geom_segment(x =0.5, xend = 0.5, y = 0, yend = 0.5, color = "red", linetype = "dashed")+
+   theme_light()
+
+p2 <- ggplot(data = df1, aes(x = mu_built_in, y = nmi,  shape = cons, color = cons))+
+  geom_point()+
+  scale_shape_manual(title, values = c(15,17,1,4))+
+  scale_color_manual(title, values = c("blue","darkgreen","black","gray"))+
+  geom_vline(xintercept = 0.5, color = 'red', linetype = "dashed")+
+  geom_hline(yintercept = 1, color = 'darkgreen', size = .5, linetype = "dashed")+
+  scale_shape_manual(values = c(15,17,1,4))+
+  scale_size(range = c(.5,.5,1,1))+
+  theme_light() + theme(legend.position = 'none')
+
+p3 <- ggplot(data = df1, aes(x = mu_built_in, y = nc_norm,  shape = cons, color = cons))+
+  geom_point()+
+  scale_shape_manual(title, values = c(15,17,1,4))+
+  scale_color_manual(title, values = c("blue","darkgreen","black","gray"))+
+  scale_shape_manual(values = c(15,17,1,4))+
+  scale_size(range = c(.5,.5,1,1))+
+  geom_vline(xintercept = 0.5, color = 'red', linetype = "dashed")+
+  geom_hline(yintercept = 1, color = 'darkgreen', size = 0.5, linetype = "dashed")+
+  theme_light()  
+
+
+p <- ggarrange(p1,p2,p3, ncol = 3,common.legend = TRUE, legend="top")+ theme(aspect.ratio = .3)
+ 
+
+#p <- annotate_figure(p, top = text_grob(title, color = "black",   size = 14))
+return(p)
+}
+
+
+
+```
+
+
+```{r}
+row_3_plots(df %>% filter(alg %in% c('LV')), clegend = T,  title = "algorithm: LV")
+row_3_plots(df %>% filter(alg %in% c('LD')), clegend = F , title = "algorithm: LD")
+row_3_plots(df %>% filter(alg %in% c('LP')), clegend = F , title = "algorithm: LP")
+row_3_plots(df %>% filter(alg %in% c('IM')), clegend = F , title = "algorithm: IM")
+#row_3_plots(df %>% filter(alg %in% c('WT')), clegend = F )
+
+  
+        
+ 
+
+
+
+```
+ 
+
+```{r}
+df1<-df %>% filter(alg %in% c('LV', 'LD','LP')) %>%
+  filter(cons != 'cons0.2')
+
+ggplot(data = df1, aes(group = cons))+
+  geom_point(data = df1%>%filter(cons=='ST'),aes(x = mu_built_in, y = mu_emp), color = 'black', shape = 1, size = 2)+
+  geom_point(data = df1%>%filter(cons=='cons0.5'),aes(x = mu_built_in, y = mu_emp), color = 'blue', shape = 1, size = 4)+
+  geom_point(data = df1%>%filter(cons=='cons0.8'),aes(x = mu_built_in, y = mu_emp), color = 'blue', shape = 2, size = 4)+
+  geom_point(data = df1%>%filter(cons=='consLF'),aes(x = mu_built_in, y = mu_emp), color = 'black', shape = 4, size = 4)+
+  scale_shape_manual(name = "methods", values=c(16, 4))+
+  ylim(0,0.7)+xlim(0,0.7)+
+  geom_abline(slope = 1, intercept = 0)+
+  geom_hline(yintercept = 0.5)+geom_vline(xintercept = 0.5, color = 'red')+
+  theme_light()+ facet_wrap(vars(alg), ncol = 3)+ theme(legend.position="top")
+
+ggplot(data = df1, aes(x = mu_built_in, y = mu_emp, color = cons, shape = cons))+geom_point()+
+  ylim(0,0.7)+xlim(0,0.7)+
+  geom_abline(slope = 1, intercept = 0)+
+  geom_hline(yintercept = 0.5)+geom_vline(xintercept = 0.5, color = 'red')+
+  theme_light()+ facet_wrap(vars(alg), ncol = 3)
+
+ggplot(data = df1, aes(x = mu_built_in, y = nmi, color = cons, shape = cons))+
+  geom_vline(xintercept = 0.5, color = 'red')+
+  geom_point( )+
+  theme_light()+ facet_wrap(vars(alg), ncol = 3) 
+
+ggplot(data = df1, aes(x = mu_built_in, y = nc_norm, color = cons, shape = cons))+
+  geom_point()+
+  geom_vline(xintercept = 0.5, color = 'red')+
+
+  geom_hline(yintercept = 1)+
+  theme_light()+ facet_wrap(vars(alg), ncol = 3) + theme(legend.position="top")
+
+```
+
+```{r}
+df %>% filter(alg %in% c('LP')) %>%
+  ggplot( aes(x = mu, y = nmi, color = cons))+
+  geom_point()+
+  geom_smooth(se = FALSE)+
+  theme_light()+ facet_wrap(vars(alg), ncol = 5)
+```
+```{r}
+df %>% filter(alg %in% c('IM',   'WT')) %>%
+  ggplot( aes(x = mu, y = nmi, color = cons))+
+  geom_point()+
+  geom_smooth(se = FALSE)+
+  theme_light()+ facet_wrap(vars(alg), ncol = 5)
+```
+
+```{r}
+ggplot(data = summary_n_trials_cons, aes(x = mu, y = nc_norm, color = met))+
+  geom_point()+
+  geom_line()+
+  theme_light()
+```
+
+
+
+```{r}
+df %>%  filter(cons !='cons0.2')%>% filter(cons !='ST')%>%
+  ggplot( aes(x = mu, y = nmi, color = cons))+
+  geom_point()+
+  geom_smooth(se = FALSE)+
+  theme_light()+ facet_wrap(vars(alg), ncol = 5)
+```
+

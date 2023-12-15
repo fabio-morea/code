@@ -81,7 +81,7 @@ make_ring_of_cliques <- function(num_cliques,
   }
   
   
-  E(G)$w <- 1.0
+  E(G)$weight <- 1.0
   
   write_graph(G, paste0(filename, '.gml'), format = 'gml')
   
@@ -96,10 +96,10 @@ make_ring_of_cliques <- function(num_cliques,
 ```{r}
 g <- make_ring_of_cliques (
     num_cliques = 4, 
-    clique_size = 6, 
-    add_center = T, 
+    clique_size = 7, 
+    add_center = F, 
     add_bridges = T, 
-    filename = 'ring_of_cliques_4_6_C_B') 
+    filename = 'ring_of_cliques_4_7_B') 
 
 V(g)$label <- V(g)$community
 V(g)$label.cex <- 0.8

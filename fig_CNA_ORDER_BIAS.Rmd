@@ -1,0 +1,193 @@
+---
+title: "variablity on R of Cliques"
+author: "Fabio Morea"
+date: "2023-065-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r}
+# install consensus community detection library
+library(devtools)  
+devtools::install_github("fabio-morea/CCD",force = TRUE)
+library(CCD)
+
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(aricode) # NMI 
+
+```
+
+```{r}
+lsf.str("package:CCD")   
+
+ 
+```
+
+```{r}
+
+
+plot_roc <- function(g, cons_communities) {
+  
+  vertex_colors <- rep( "orange", vcount(g))
+  vertex_colors <- if_else (V(g)$gamma < 0.60,  "yellow",vertex_colors)
+  vertex_colors <- if_else (V(g)$gamma < 0.1,  "white",vertex_colors)
+   
+      
+  plot(cons_communities,g,  
+       vertex.label=V(g)$gamma, 
+       vertex.size = 30, 
+       edge.width = E(g)$weight)
+  
+  
+  plot(g,  layout = layout_with_kk,
+       vertex.color =vertex_colors,
+       vertex.label=V(g)$gamma, 
+       vertex.size = 30, 
+       edge.width = E(g)$weight)
+  
+  table(V(g)$gamma)
+  
+  hist(V(g)$gamma)
+  
+
+
+}
+```
+
+
+using t = 1000 and shuffle = TRUE we achieve better results:
+uncertainty on central node = 75% and uncertainty on bridges = 50%
+
+```{r}
+
+# Gamma0 is the parameters that deterines the strategy for outliers
+# nodes with gamma < gamma0 will make single-node communities
+# gamma0 = 0.8 will create more outliers i.e. HIGLIGHT OUTLIERS
+# gamma0 = 0.1 will create larger communities with less outliers, i.e. AGGREGATE OUTLIERS
+
+g <- make_ring_of_cliques (
+      num_cliques = 4, 
+      clique_size = 6, 
+      add_center = T, 
+      add_bridges = T) 
+g
+plot(g, vertex.size = 20, vertex.color = 'lightgray')
+
+CC <- consensus_community_detection (g, 
+                                     t=100, 
+                                     method='LV', 
+                                     p = 0.7,
+                                     resolution = c(1.0),
+                                     shuffle=T ) 
+V(g)$gamma <-CC$gamma
+V(g)$cons_comm_label<-CC$membership
+
+plot_roc(g, CC)
+
+
+``` 
+   
+  
+# analysis of order bias 
+
+```{r}
+#methods <- c('IM','ML','LP','FG' ,'WT', 'LE', 'LD')
+methods <- c('LD', 'FG', 'ML')
+
+
+shuff = "fixed"
+
+#g<-read_graph('./benchmark/ring_of_cliques/ring_of_cliques_4_6_C.gml', format = 'gml')
+#plot(g)
+#g <- igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE ) )
+
+center_id <- which(degree(g)==4)
+
+results <- data.frame()
+
+for (met in methods) {
+    for (i in 1:1000) {
+        comms <- find_communities(g, met)
+        nc <- max(comms$membership)
+        m_center <- comms$membership[center_id]
+        results <- rbind(results, data.frame(met, shuff, nc, m_center))
+
+    }
+}
+ 
+
+
+
+##shuffle ids before comm detection
+
+shuff = "shuffled"
+
+for (met in methods) {
+    for (i in 1:1000) {
+g_shuffled <- igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE ) )
+center_id <- which(degree(g_shuffled)==4)
+
+                comms <- find_communities(g_shuffled, met, r = c(1.0))
+        nc <- max(comms$membership)
+        if(nc == 6){plot(comms,g_shuffled)}
+        m_center <- comms$membership[center_id]
+        results <- rbind(results, data.frame(met, shuff, nc, m_center))
+
+    }
+}
+
+
+
+table_center_shuffled <- results %>% filter(shuff == 'shuffled')%>% 
+    mutate(algorithm = met)%>% select(-met)%>%
+    group_by(algorithm, m_center) %>%
+  summarise(n = n()) %>%
+  mutate(freq =  (n / sum(n))) %>%
+    select(-n)%>%
+    arrange(m_center)%>%
+    pivot_wider(names_from = m_center, values_from = freq, values_fill = 0.00) 
+
+
+table_center_fixed <- results %>% filter(shuff == 'fixed')%>%
+    mutate(algorithm = met)%>% select(-met)%>%
+    group_by(algorithm, m_center) %>%
+  summarise(n = n()) %>%
+  mutate(freq =  (n / sum(n))) %>%
+    select(-n)%>%
+    arrange(m_center)%>%
+    pivot_wider(names_from = m_center, values_from = freq, values_fill = 0.00) 
+
+print(table_center_fixed)
+
+print(table_center_shuffled)
+
+
+
+
+```
+
+```{r}
+results %>%  rename(algorithm = met)%>%
+  ggplot(aes(y = m_center, fill = algorithm))+geom_bar()+facet_grid(shuff~ algorithm)+ theme_bw()+
+  geom_vline(xintercept = 250, linetype = 'dashed') + theme(aspect.ratio = .7) + 
+  xlab('number of assignation over 1000 trials')+
+  ylab('label assigned to central node')
+
+```
+ 
+```{r}
+results %>% ggplot(aes(y = m_center, fill = met))+geom_bar()+facet_grid(met~shuff)+ theme_light() + geom_vline(xintercept = 25) + theme(aspect.ratio = .15)
+```
+  
+  

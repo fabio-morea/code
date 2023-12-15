@@ -1,0 +1,58 @@
+---
+title: "entropy"
+author: "Fabio Morea"
+date: "2023-07-26"
+output: html_document
+---
+
+# entropy
+on categorical data
+
+```{r}
+data1 = as.factor(c(1.12,1.11,1.0,1.0,1.0,0.923,0.92,0.9,0.9, 0.8,0.78,0.65))
+data2 = as.factor(c(1,1,1,1,1,1,6))
+data3 = as.factor(c(1,1,1,1,1,1,1))
+```
+
+```{r}
+shannon_entropy <- function( data ){
+    data <- as.factor(data)
+    freqs = table(data)/length(data)
+    ent <- -sum(freqs * log2(freqs))
+    return(ent)
+}
+
+norm_shannon_entropy <- function( data ){
+    number_of_classes <- length(table(data))
+    if (number_of_classes > 1){
+        max_entropy <- log2(number_of_classes)
+        n_ent <- shannon_entropy( data ) / max_entropy
+        return(n_ent)
+    } else {
+        return(0)
+    }
+}
+
+norm_shannon_entropy_1 <- function( data ){
+    number_of_classes <- length(table(data))
+    if (number_of_classes > 1){
+        max_entropy <- log2(number_of_classes)
+        n_ent <- shannon_entropy( data ) / max_entropy
+        return(1-n_ent)
+    } else {
+        return(1)
+    }
+}
+
+```
+
+
+```{r}
+norm_shannon_entropy(data1)
+norm_shannon_entropy(data2)
+norm_shannon_entropy(data3)
+
+
+```
+
+

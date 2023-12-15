@@ -1,0 +1,219 @@
+---
+title: "CCD on karate-club network"
+author: "Fabio Morea"
+date: "2023-11-23"
+ 
+output:
+  pdf_document: default
+---
+
+########################## 
+
+# rif
+
+<https://studentwork.prattsi.org/infovis/labs/zacharys-karate-club/>
+immagine ben fatta, con layout ampio
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+library(devtools)  
+
+devtools::install_github("fabio-morea/CCD", force = TRUE)
+library(CCD)
+
+library(igraph)
+library(tidyverse)
+ 
+library(gridExtra)
+library(ggpubr)
+library(aricode) # NMI 
+library(plotly)  
+library(scales)
+library(RColorBrewer)
+```
+
+```{r}
+library(igraphdata)
+data(karate)
+gk <- karate
+plot(gk, vertex.label = V(gk)$name)
+```
+
+ shapes <- setdiff(shapes(), "")
+
+
+plot(gk,  layout = layout.graphopt,
+     vertex.size = 20,
+     vertex.shape = if_else ( comms$membership == 1, "circle", "square"),
+     vertex.color = if_else ( comms$gamma == 0, "white", "red"))
+
+ 
+ ``{r}
+
+#exploring impact of different values of resolution
+for (res in seq(.2, 1.6 , 0.2)){
+   comms_CCD1 <- CCD::consensus_community_detection(
+       gk,
+       t = 100,
+       p = 0.5,
+       method = 'LV',
+       resolution = res
+   )
+   print(paste(res, length(table(comms_CCD1$membership))))
+}
+ ``
+
+ ``{r}
+
+# given a single resolution, exploring stability for t = 100
+comms_CCD1 <- consensus_community_detection(
+       gk,
+       t = 100,
+       p = 0.8,
+       method = 'LD',
+       resolution = c(0.6 )
+   )
+
+for (i in 1:3) {
+   comms_CCD2 <-CCD::consensus_community_detection(
+           gk,
+           t = 100,
+           p = 0.8,
+           method = 'LD',
+           resolution = 0.6 )
+    nmi <- aricode::NMI(as.factor(comms_CCD1$membership),as.factor(comms_CCD2$membership))
+}
+
+# given t = 100, resolution = 0.5, p = 0.6
+# explore gammas
+# 
+# 
+ ``
+ 
+ 
+```{r}
+
+plot_uncertainty <- function(g,comms, roundgamma = 1) {
+  
+  df <- data.frame(name = as.factor(V(g)$name),
+                   uncertainty =  round(V(g)$gamma, roundgamma),
+                   community = as.factor( V(g)$community) ,
+                   centrality = coreness(g))  
+  df <- df[order(df$community, df$name), ]
+  df$name <- reorder(  df$name, df$uncertainty )
+   
+  barchart<-df %>% ggplot()+geom_col(aes(y= name, x = uncertainty, fill = community)) 
+  print(ggplotly(barchart))
+  
+  
+  layout_fixed <- layout_nicely(g)
+
+  palette_comms <- rev(brewer.pal(length(unique(V(g)$community)), "Greys"))
+  for (i in 1:length(palette_comms)){
+      palette_comms[i] <- adjustcolor( palette_comms[i] , alpha.f = .6)
+  }
+
+  palette_gamma <- brewer.pal(length(unique(V(g)$gamma)), "Oranges")
+
+ 
+plot(CC,
+      g,  
+      col = palette_gamma[as.numeric(as.factor(V(g)$gamma))],
+      mark.border="black", 
+      mark.col= palette_comms,
+      vertex.label =  NA ,
+      vertex.size = coreness(g)*3
+  )
+  legend("topleft", 
+         title = "uncertainty",
+         legend = levels(as.factor(V(g)$gamma  )), 
+         col = palette_gamma[1:length(levels(as.factor(V(g)$gamma )))] , 
+         pch = 16, 
+         bty = "n")
+    legend("topright", 
+         title = "community",
+         legend = rev(unique(V(g)$community)), 
+         col = palette_comms[1:length(unique(V(g)$community))] , 
+         pch = 16, 
+         bty = "n")
+  
+   
+  
+  bubblechart <- df %>% ggplot(aes(x=centrality, y = uncertainty, color = community)) + 
+      geom_point(size = degree(g), alpha = 0.5)+
+      theme_light()  
+  print(ggplotly(bubblechart))
+
+}
+ 
+```
+
+ 
+
+
+ 
+```{r}
+g <- gk
+CC <-CCD::consensus_community_detection(
+        g,
+        p = 0.6,
+        t = 501,
+        group_outliers = TRUE,
+        method = 'LV',
+        resolution = c(0.7),
+        shuffle = TRUE
+    )
+
+#V(g)$community <- CC$membership[order(match(CC$name, V(g)$name))]
+V(g)$community <- CC$membership 
+V(g)$gamma <- round(CC$gamma, 2)
+V(g)$comm_size <- CC$comm_size
+
+plot(CC, g)
+print(paste("Number of communities", max(V(g)$community)))
+table(V(g)$gamma)
+hist(V(g)$gamma)
+
+
+plot_uncertainty(g, CC,roundgamma = 2)
+
+
+ 
+
+
+
+```
+
+# test on a Ring of Cliques with 3 single node components
+```{r}
+rc <-CCD::make_ring_of_cliques(num_cliques = 6, clique_size = 8, add_bridges = T, add_center = T)
+#rc <- rc %>% add_vertices(3)  
+#V(rc)$name <- seq(1:vcount(rc))
+#plot(rc)
+ 
+g<-rc
+CC <-CCD::consensus_community_detection(
+        g,
+        p = 0.8,
+        t = 501,
+        group_outliers = F,
+        method = 'WT',
+        resolution = c(0.7),
+        shuffle = TRUE
+    )
+        
+
+V(g)$community <- CC$membership[ order(match(CC$name, V(g)$name)) ]
+V(g)$gamma <- round( CC$gamma,2)
+V(g)$community[ V(g)$comm_size == 1 ] <- 0
+
+plot(CC, g)
+print(paste("Number of communities", max(V(g)$community)))
+
+
+table(V(g)$gamma)
+hist(V(g)$gamma)
+plot_uncertainty(g, CC, roundgamma=2)
+
+```
+`

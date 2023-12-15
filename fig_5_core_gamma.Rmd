@@ -1,0 +1,95 @@
+---
+title: "consensus ML on LFR"
+author: "Fabio Morea"
+date: "2023-065-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(ggpubr)
+library(aricode) # NMI 
+source('./functions_graph_analysis.R')
+```
+ 
+
+```{r}
+path <- "./benchmark/LFR/LFR_benchmark_"
+mui = seq(5,60,5)
+n_trials = 100
+method_base = 'LV'
+shuffle <- TRUE
+resol = c(1.0)
+gamma_lim = 0.6
+```
+
+```{r}
+#g<-load_benchmark_network(mui = 5,path = path, verbose = T)
+
+#g<-read_graph('./benchmark/ring_of_cliques/ring_of_cliques_4_6_C_B.gml', format = 'gml')
+g<-read_graph('./benchmark/ring_of_cliques/ring_of_cliques_8_10_B_C.gml', format = 'gml')
+
+V(g)$name <-V(g)$id
+V(g)$core <- coreness(g)
+
+cons_comm <- consensus_community_detection(g, 
+                                  t = 100, 
+                                  method='LV', 
+                                  gamma_lim= 0.5, 
+                                  resolution=c(0.8, 1.0, 1.2), 
+                                  shuffle=TRUE)
+
+V(g)$comm_consLV <- cons_comm$membership
+V(g)$gammaLV <- cons_comm$gamma
+
+plot(V(g)$core, V(g)$gammaLV )
+df <- data.frame(n = V(g)$name, g = V(g)$gammaLV) %>% arrange(-g)
+
+gsub <- igraph::induced_subgraph(graph = g, vids =  find_neighbours(g,  df$n[1], order = 2) )
+plot(gsub, vertex.label =V(gsub)$gammaLV, vertex.size = 40, vertex.color = V(gsub)$comm_consLV) 
+
+gsub <- igraph::induced_subgraph(graph = g, vids =  find_neighbours(g,  df$n[2], order = 2) )
+plot(gsub, vertex.label =V(gsub)$gammaLV, vertex.size = 40, vertex.color = V(gsub)$comm_consLV) 
+
+gsub <- igraph::induced_subgraph(graph = g, vids =  find_neighbours(g,  df$n[3], order = 2) )
+plot(gsub, vertex.label =V(gsub)$gammaLV, vertex.size = 40, vertex.color = V(gsub)$comm_consLV) 
+```
+```{r}
+g<-load_benchmark_network(mui = 20,path = path, verbose = T)
+V(g)$name <-V(g)$id
+ 
+cons_comm <- consensus_community_detection(g, 
+                                           t = 100, 
+                                   method='LV', 
+                                   gamma_lim= 0.6, 
+                                   resolution=c(0.9, 1.0,1.1), 
+                                   shuffle=TRUE)
+
+  
+V(g)$comm_consLV <- cons_comm$membership
+V(g)$gammaLV <- cons_comm$gamma
+
+plot(V(g)$core, V(g)$gammaLV )
+df <- data.frame(n = V(g)$name, g = V(g)$gammaLV, k = coreness(g)) %>% arrange(-g)
+for (j in 1:20){
+  gsub <- igraph::induced_subgraph(graph = g, vids =  find_neighbours(g,  df$n[j], order = 2) )
+  plot(gsub, 
+       vertex.label =V(gsub)$gammaLV, 
+       vertex.size = 30, 
+       vertex.color = V(gsub)$comm_consLV) 
+}
+
+df %>% ggplot()+geom_point(aes(x = k, y = g), size = 10, alpha = .1, color = 'red')+theme_light()+
+  xlab("k-coreness")+ylab('uncertainty coefficient gamma')
+```
+```
+

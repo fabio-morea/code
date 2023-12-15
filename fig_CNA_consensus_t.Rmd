@@ -1,0 +1,218 @@
+---
+title: "consensus comunity detection"
+author: "Fabio Morea"
+date: "2023-07"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(ggpubr)
+library(aricode) # NMI 
+library(CCD)
+source('./functions_graph_analysis.R')
+```
+
+```{r}
+calculate_stats <- function(data) {
+  # Calculate mean and median
+  mean_val <- mean(data)
+  median_val <- median(data)
+
+  # Calculate standard error
+  se <- sd(data) / sqrt(length(data))
+
+  # Calculate 90% confidence interval for the mean using t-distribution
+  alpha <- 0.1
+  t_stat <- qt(1 - alpha/2, df=length(data)-1)
+  ci_low <- mean_val - t_stat * se
+  ci_high <- mean_val + t_stat * se
+  
+  # Return results
+  list(
+    mean = mean_val,
+    median = median_val,
+    confidence_interval = c(ci_low, ci_high)
+  )
+}
+
+# Test the function
+data <- c(1.2, 3.4, 2.5, 4.1, 3.3)
+x <- calculate_stats(data)
+print(x)
+
+```
+
+
+load data
+ 
+```{r}
+path <- "./benchmark/LFR/LFR_benchmark_"
+g <- load_benchmark_network(mui = 20, path = path, verbose = FALSE)
+g <- induced.subgraph(g, components(g)$membership == 1)
+print(g) 
+```
+
+ comms$gamma conserva la variabilità interna 
+ 
+ NMI esterna cioè variabilità TRA i diversi trial: 
+ devo salvare i s = 20 vettori di membership e fare NMI tra loro con bootstrap (ne ottengo 400)
+ 
+ 
+ 
+   
+```{r}
+s = 21
+results <- data.frame()
+nmis <- data.frame()
+for (t in c(1, 5 , 10, 20 , 50, 100, 200, 500, 1000 )) {    
+  print(t)
+  MM <- c()
+  
+  print(paste("T = ", t))
+  for (i in 1:s) {
+    comms <- CCD::consensus_community_detection(
+      method = 'LD',
+      resolution = c(1.0), 
+      g,
+      t = t,
+      gamma_lim = 0.6,
+      shuffle = TRUE
+    )
+    nc = max(comms$membership)
+    MM <- cbind(MM, comms$membership)
+    
+    #print(table(round(comms$gamma,1)))
+    # add column mean gamma
+    # add a matrix of full membership vectors
+    #print(paste(i, nc))
+    results <- rbind(results,
+                     data.frame(
+                       iteration = i,
+                       trials = t,
+                       nc = nc,
+                       ls = comms$membership))
+  }
+ 
+  for (j in 1:s) {
+    for (k in 1:s) {
+      if (j != k) {
+        tmp <- NMI(MM[, j], MM[, k])
+        nmis <- rbind( nmis, data.frame( 
+          iteration = i,
+          trials = t,
+          nmivalue = tmp) )
+      }
+    }
+  }
+  #hist(nmis)
+
+  mean_nmi <- mean( nmis %>% filter( trials == t) %>% pull() )
+  print(mean_nmi)
+}
+
+#print(results)
+
+```
+
+```{r}
+nmis %>% write_csv('nmis.csv')
+results %>% write_csv('results.csv')
+
+```
+
+
+```{r}
+p1 <- results %>% filter(trials != 1) %>%
+  ggplot(aes(x = as.factor(trials), y = nc))+ geom_boxplot()   + 
+  xlab("number of iterations (t)") + ylab("number of communities")+ 
+  theme_bw() + theme(aspect.ratio = .5)
+p1
+```
+
+
+```{r}
+nmis <- nmis %>% 
+  mutate(trials = as.factor(trials))
+
+nmis %>% filter(trials != 1)%>%
+  ggplot(aes( x = nmivalue,  group = trials, fill = trials ))+
+  geom_histogram( bins = 20, color = 'white')+
+  #geom_line(stat = "density") +
+  #xlim(0.75,1.0)+
+  xlab("Normalized Mutual Information")+
+  facet_wrap(~ trials)+  
+  theme_bw() + theme(aspect.ratio = .5)
+```
+
+
+
+```{r}
+nmis <- nmis %>% 
+  mutate(trials = as.factor(trials))
+
+nmis %>% filter(trials %in% c(1,10,100,1000)) %>%
+  ggplot(aes( x = nmivalue,  group = trials, fill = trials ))+
+  geom_histogram( bins = 20, color = 'white')+
+  #geom_line(stat = "density") +
+  #xlim(0.75,1.0)+
+  xlab("Normalized Mutual Information")+
+  facet_wrap(~ trials, ncol = 4)+  
+  theme_bw() 
+```
+
+
+```{r}
+nmis <- nmis %>% 
+  mutate(trials = as.factor(trials))
+
+p2<- nmis %>% #filter(trials %in% c(1,10,100,1000)) %>%
+  ggplot(aes( y = nmivalue,  x = trials , group = trials ))+
+  geom_hline(yintercept = 1.0, color = 'darkgreen', size = 1, linetype = 'dashed')+
+  geom_boxplot()+  xlab("number of iterations (t)") + ylab("Normalized Mutual Information")+
+  theme_bw() + theme(aspect.ratio = .5)
+p2
+```
+
+```{r}
+ggarrange(p1,p2)
+```
+
+
+```{r}
+nmis <- nmis %>% mutate(trials = as.factor(trials))
+nmis %>% ggplot(aes( x = nmivalue,  group = trials, color = trials ))+
+  #geom_histogram( bins = 20, color = 'white')+
+  geom_line(stat = "density") +
+  xlim(0.75,1.0)+
+  #facet_wrap(~ trials )+ 
+  theme_bw() 
+  
+```
+```{r}
+nmis_summary <- nmis %>% 
+  group_by(trials) %>%
+  summarize(mnmi=mean(nmivalue)) %>% ungroup()
+
+nmis_summary %>% 
+  ggplot(aes(x = trials, y = mnmi)) + 
+  geom_point() + geom_line(group = 1) + theme_bw()
+
+q90 <- function(x) {quantile(x,probs=0.9)}
+
+ggplot() + 
+  geom_point(data = nmis, aes(x = trials, y = nmivalue), size = 2, alpha = .05, color = 'gray') + geom_line(data = nmis_summary, group = 1, aes(x = trials, y = mnmi)) + theme_bw() + theme(aspect_ratio = 0.5)
+#+ stat_summary(fun.y=q90, colour="red", geom="crossbar", size = .5, ymin=0, ymax=0) 
+
+  
+```
+

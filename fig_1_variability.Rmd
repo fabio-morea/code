@@ -1,0 +1,121 @@
+---
+title: "consensus comunity detection"
+author: "Fabio Morea"
+date: "2023-07"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r}
+# install consensus community detection library
+library(devtools)  
+devtools::install_github("fabio-morea/CCD")
+library(CCD)
+#source('./functions_graph_analysis.R')
+
+```
+
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(ggpubr)
+library(aricode) # NMI 
+library(scales)
+```
+
+load data
+
+```{r}
+
+test_and_plot_variability <- function(g, t, shuffle, methods, resolution, steps) {
+  results <- data.frame()
+  for (met in methods){
+    print(met)
+    M <- data.frame(name = V(g)$name)
+    mod <- c()
+    for (i in 1:t) {
+      if (shuffle){
+          gs <- igraph::permute(g, sample(1:vcount(g),size = vcount(g),replace = FALSE))  
+      } else {
+        gs <- g
+      }
+      comms <-find_communities(gs, method = met, r = resolution, s = steps)
+      comm_labeled <-data.frame(name = V(gs)$name, memb = comms$membership)
+      M <-inner_join(M ,  comm_labeled, by = 'name')
+      colnames(M) <- c('name', seq(1:i))
+      mod[i] <- igraph::modularity(gs,comms$membership)
+    }
+    M <- M %>% arrange(name) %>% select(-name)
+    best_trial = which.max(mod)
+    for (i in 1:t){
+      mm = mod[i]
+        nmi = aricode::NMI(as.factor(M[,i]), as.factor(M[,best_trial]))
+        nc = length(table(M[,i]))  
+        results <- rbind(results, data.frame(met, mm, nmi, nc))
+    }
+  }
+  
+  results <- results %>% mutate(nc = as.integer(nc))
+  
+  p1<-results%>%
+    ggplot() + theme_minimal()+   theme(legend.position="none") +
+    xlab("NMI")+  scale_x_continuous(breaks= pretty_breaks())+
+    facet_wrap( vars(met), ncol = 5)+# scales="free"
+    geom_histogram(aes(x = nmi, fill = met, color = met), bins = 20) + 
+    theme(panel.spacing = unit(.3, "cm"))
+  
+  
+  #custom breaks 
+   
+  p2<-results%>%
+    ggplot() + theme_minimal()+  theme(legend.position="none") +#theme(aspect.ratio = 1) + 
+    xlab("# communities")+  scale_x_continuous(breaks= pretty_breaks())+
+    facet_wrap( vars(met), ncol = 5 ,scales="free")+  
+    geom_bar(aes(x =as.integer(nc), fill = met,  color = met))+ 
+    theme(panel.spacing = unit(.3, "cm"))
+  
+  
+  p3<-results%>%
+    ggplot() + theme_minimal()+  theme(legend.position="none") +#theme(aspect.ratio = 1) + 
+    xlab("# communities")+   scale_x_continuous(breaks= pretty_breaks())+
+    ylab("NMI")+ scale_y_continuous(breaks= pretty_breaks())+
+    facet_wrap( vars(met), ncol = 5, scales="free")+
+    geom_point(aes(x = as.integer(nc), y = nmi , color = met) )+ 
+    theme(panel.spacing = unit(.3, "cm"))
+  
+  ggarrange(p1,p2, p3, nrow = 3)
+
+}
+```
+
+```{r}
+path <- "./benchmark/LFR/LFR_benchmark_"
+g <- load_benchmark_network(mui = 30, path = path, verbose = TRUE)
+```
+```{r}
+
+
+test_and_plot_variability(g, 
+                          t = 100, 
+                          shuffle = TRUE, 
+                          methods = c('LV', 'LD', 'IM', 'LP', 'WT'), 
+                          resolution = c(1.0 ),
+                          steps = c(10)
+                          ) 
+
+
+
+```
+
+
+
+
+ 

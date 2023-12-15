@@ -1,5 +1,5 @@
 ---
-title: "variablity on R of Cliques"
+title: "consensus ML on LFR"
 author: "Fabio Morea"
 date: "2023-065-23"
  
@@ -67,7 +67,7 @@ method_base <- 'ML'
 
 ## 1 incorporate (LP, gmin = 0.2)
 ```{r}
-method <- paste0(method_base, '_inc')
+method <- paste0(method_base, '_inc02')
 gamma_lim = 0.2
 summary_n_trials_cons <- data.frame()
 nc_builtin <- c()
@@ -83,7 +83,7 @@ for (mu in mui) {
     n_trials = 100,
     methods = substr(method,1,2))
    
-  cons_communities <- consensus(membership_matrix, gamma_lim = gamma_lim)
+  cons_communities <- consensus(t(membership_matrix), gamma_lim = gamma_lim)
 
   results <- analyse_communities(g, cons_communities, verbose = TRUE)
   summary_n_trials_cons <- rbind(summary_n_trials_cons, results )
@@ -99,17 +99,17 @@ summary_n_trials_cons %>% write.csv(paste0('./tmp/summary_',method,'.csv'))
 
 ```{r}
 p1 <- summary_n_trials_cons %>% 
-  group_by(method, mu) %>% 
+  group_by(method, mu_emp) %>% 
   summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
   
-  ggplot(aes(x = mu, y = mean_nmi)) +
-  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
-  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  ggplot(aes(x = mu_emp, y = mean_nmi)) +
+  geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
   geom_line(aes(color = method)) +
   geom_point(aes(color = method)) +
   geom_linerange(aes(ymin =mean_nmi-sd_nmi, ymax = mean_nmi + sd_nmi, color = method), linewidth = 2, alpha = 0.5)+
   geom_hline(yintercept = 0.5)+
   geom_vline(xintercept = 0.5)+
+  ylim(0,1)+
   labs(title = "Normalized Mutual Information ", y = "NMI", x = "empirical mixing parameter") +
   theme_light()   
 p1
@@ -118,10 +118,10 @@ p1
 
 
 p2 <- summary_n_trials_cons %>% 
-  group_by(method, mu) %>%  
+  group_by(method, mu_emp) %>%  
   summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
   
-  ggplot(aes(x = mu, y = mean_nc)) +
+  ggplot(aes(x = mu_emp, y = mean_nc)) +
   #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
   #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
   geom_line(aes(color = method)) +
@@ -129,19 +129,13 @@ p2 <- summary_n_trials_cons %>%
   geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = method), linewidth = 2, alpha = 0.5)+
   geom_hline(yintercept = 1)+
   geom_vline(xintercept = 0.5)+
-  labs(title = "number of communities ", y = "normalized number of communities C/C0", x = "empirical mixing parameter") +
+  labs(title = "number of communities ", y = "normalized number of communities K/K0", x = "empirical mixing parameter") +
   theme_light() 
 
 p2
 
 ```
-
-```{r}
-png(filename="../figures/fig_cons.png",'figurecons.png',width = 30, height = 15, res = 300, units = "cm")
-grid.arrange(p1, p2, ncol = 2)
-dev.off()
-```
-
+ 
 ```{r}
 grid.arrange(p1, p2, ncol = 2)
 
@@ -150,6 +144,76 @@ grid.arrange(p1, p2, ncol = 2)
 
 
 
+## 1 incorporate (LP, gmin = 0.5)
+```{r}
+method <- paste0(method_base, '_inc05')
+gamma_lim = 0.5
+summary_n_trials_cons <- data.frame()
+nc_builtin <- c()
+for (mu in mui) {
+  print('-')
+  g <- load_benchmark_network(mui = mu,
+                              path = path,
+                              verbose = TRUE)
+  
+  nc_builtin <- c(nc_builtin,max(V(g)$community))
+  
+  membership_matrix <- find_communities_N_times (g,
+    n_trials = 100,
+    methods = substr(method,1,2))
+   
+  cons_communities <- consensus(t(membership_matrix), gamma_lim = gamma_lim)
+
+  results <- analyse_communities(g, cons_communities, verbose = TRUE)
+  summary_n_trials_cons <- rbind(summary_n_trials_cons, results )
+  
+}
+summary_n_trials_cons$nc_norm <- summary_n_trials_cons$nc / nc_builtin
+summary_n_trials_cons %>% write.csv(paste0('./tmp/summary_',method,'.csv'))
+ 
+```
+
+
+
+
+```{r}
+p1 <- summary_n_trials_cons %>% 
+  group_by(method, mu_emp) %>% 
+  summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
+  
+  ggplot(aes(x = mu_emp, y = mean_nmi)) +
+  geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nmi-sd_nmi, ymax = mean_nmi + sd_nmi, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 0.5)+
+  geom_vline(xintercept = 0.5)+
+  ylim(0,1)+
+  labs(title = "Normalized Mutual Information ", y = "NMI", x = "empirical mixing parameter") +
+  theme_light()   
+p1
+```
+```{r}
+
+
+p2 <- summary_n_trials_cons %>% 
+  group_by(method, mu_emp) %>%  
+  summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
+  
+  ggplot(aes(x = mu_emp, y = mean_nc)) +
+  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
+  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 1)+
+  geom_vline(xintercept = 0.5)+
+  labs(title = "number of communities ", y = "normalized number of communities K/K0", x = "empirical mixing parameter") +
+  theme_light() 
+
+p2
+
+```
  
 
 
@@ -172,7 +236,7 @@ for (mu in mui) {
     n_trials = 100,
     methods = substr(method,1,2))
    
-  cons_communities <- consensus(membership_matrix, gamma_lim = gamma_lim)
+  cons_communities <- consensus(t(membership_matrix), gamma_lim = gamma_lim)
 
   results <- analyse_communities(g, cons_communities, verbose = TRUE)
   summary_n_trials_cons <- rbind(summary_n_trials_cons, results )
@@ -187,10 +251,10 @@ summary_n_trials_cons %>% write.csv(paste0('./tmp/summary_',method,'.csv'))
 
 ```{r}
 p3 <- summary_n_trials_cons %>% 
-  group_by(method, mu) %>% 
+  group_by(method, mu_emp) %>% 
   summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
   
-  ggplot(aes(x = mu, y = mean_nmi)) +
+  ggplot(aes(x = mu_emp, y = mean_nmi)) +
   #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
   #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
   geom_line(aes(color = method)) +
@@ -207,10 +271,10 @@ p3
 
 
 p4 <- summary_n_trials_cons %>% 
-  group_by(method, mu) %>%  
+  group_by(method, mu_emp) %>%  
   summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
   
-  ggplot(aes(x = mu, y = mean_nc)) +
+  ggplot(aes(x = mu_emp, y = mean_nc)) +
   #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
   #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
   geom_line(aes(color = method)) +
@@ -218,7 +282,7 @@ p4 <- summary_n_trials_cons %>%
   geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = method), linewidth = 2, alpha = 0.5)+
   geom_hline(yintercept = 1)+
   geom_vline(xintercept = 0.5)+
-  labs(title = "number of communities ", y = "normalized number of communities C/C0", x = "empirical mixing parameter") +
+  labs(title = "number of communities ", y = "normalized number of communities K/K0", x = "empirical mixing parameter") +
   theme_light() 
 
 p4
@@ -262,7 +326,7 @@ for (mu in mui) {
     n_trials = 100,
     methods = substr(method,1,2))
    
-  cons_communities <- consensus(membership_matrix, gamma_lim = gamma_lim)
+  cons_communities <- consensus(t(membership_matrix), gamma_lim = gamma_lim)
   cons_communities$membership[ cons_communities$gamma <=gamma_lim ] <- 0
 
   results <- analyse_communities(g, cons_communities, verbose = TRUE)
@@ -278,10 +342,10 @@ summary_n_trials_cons %>% write.csv(paste0('./tmp/summary_',method,'.csv'))
 
 ```{r}
 p5 <- summary_n_trials_cons %>% 
-  group_by(method, mu) %>% 
+  group_by(method, mu_emp) %>% 
   summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
   
-  ggplot(aes(x = mu, y = mean_nmi)) +
+  ggplot(aes(x = mu_emp, y = mean_nmi)) +
   #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
   #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
   geom_line(aes(color = method)) +
@@ -298,10 +362,10 @@ p5
 
 
 p6 <- summary_n_trials_cons %>% 
-  group_by(method, mu) %>%  
+  group_by(method, mu_emp) %>%  
   summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
   
-  ggplot(aes(x = mu, y = mean_nc)) +
+  ggplot(aes(x = mu_emp, y = mean_nc)) +
   #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
   #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
   geom_line(aes(color = method)) +
@@ -309,7 +373,7 @@ p6 <- summary_n_trials_cons %>%
   geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = method), linewidth = 2, alpha = 0.5)+
   geom_hline(yintercept = 1)+
   geom_vline(xintercept = 0.5)+
-  labs(title = "number of communities ", y = "normalized number of communities C/C0", x = "empirical mixing parameter") +
+  labs(title = "number of communities ", y = "normalized number of communities K/K0", x = "empirical mixing parameter") +
   theme_light() 
 
 p6
@@ -319,42 +383,52 @@ p6
 
 # plots for paper
 ```{r}
-s1<- read_csv(paste0('./tmp/summary_ML_inc.csv'))
-s2<- read_csv(paste0('./tmp/summary_ML_high.csv'))
-s3<- read_csv(paste0('./tmp/summary_ML_g.csv'))
+s1<- read_csv(paste0('./tmp/summary_ML_inc.csv'),show_col_types = FALSE)%>% 
+  select(mu_emp, mu_built_in, nmi, nc_norm, method)
+s15<- read_csv(paste0('./tmp/summary_ML_inc05.csv'),show_col_types = FALSE)%>% 
+  select(mu_emp,mu_built_in, nmi, nc_norm, method)
+s2<- read_csv(paste0('./tmp/summary_ML_high.csv'),show_col_types = FALSE)%>% 
+  select(mu_emp,mu_built_in,nmi, nc_norm, method)
+s3<- read_csv(paste0('./tmp/summary_ML_g.csv'),show_col_types = FALSE)%>% 
+  select(mu_emp,mu_built_in,nmi, nc_norm, method)
+s4<-data.frame()
+for (i in seq(5,60,5)){
+    s4<-rbind(s4,read_csv(paste0('./results/summary_single_',i,'.csv'),show_col_types = FALSE))
+}
+s4<-s4%>% select(mu_emp,mu_built_in,nmi, nc_norm, method) %>% filter(method == 'ML')
 
-summary_n_trials_cons <- rbind(s1,s2,s3)
+summary_n_trials_cons <- rbind(s1,s15,s2,s3,s4)
 summary_n_trials_cons <- summary_n_trials_cons %>% 
-  mutate(across("method", str_replace, "ML_inc_cons", "incorporate"))%>%
-  mutate(across("method", str_replace, "ML_high_cons", "highlight"))%>%
-  mutate(across("method", str_replace, "ML_g_cons", "group"))%>% 
+  mutate(across("method", str_replace, "ML_inc_cons",   "incorporate 0.2"))%>%
+  mutate(across("method", str_replace, "ML_inc05_cons", "incorporate 0.5"))%>%
+  mutate(across("method", str_replace, "ML_high_cons", "highlight 0.9"))%>%
+  mutate(across("method", str_replace, "ML_g_cons", "group 0.9"))%>% 
     rename(outliers = method)
 
 p1 <- summary_n_trials_cons  %>%
-  group_by(outliers, mu) %>% 
+  group_by(outliers,  mu_built_in,) %>% 
   summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
-  
-  ggplot(aes(x = mu, y = mean_nmi)) +
-  geom_line(aes(color = outliers)) +
+  ggplot(aes(x = mu_built_in, y = mean_nmi)) +
+  geom_smooth(aes(color = outliers)) +
   geom_point(aes(color = outliers)) +
   geom_linerange(aes(ymin =mean_nmi-sd_nmi, ymax = mean_nmi + sd_nmi, color = outliers), linewidth = 2, alpha = 0.5)+
   #geom_hline(yintercept = 0.5)+
   geom_vline(xintercept = 0.5)+
   ylim(0,1)+  guides(fill="none") +
-  labs(title = "", y = "NMI", x = "mixing parameter") +
+  labs(title = "", y = "NMI", x = "empirical mixing parameter") +
   theme_light()  +theme (legend.position="none")
 
 p2 <- summary_n_trials_cons %>%  
-  group_by(outliers, mu) %>%  
+  group_by(outliers, mu_built_in) %>%  
   summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
-    ggplot(aes(x = mu, y = mean_nc)) +
-  geom_line(aes(color = outliers)) +
-  geom_point(aes(color = outliers)) +
-  geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = outliers), linewidth = 2, alpha = 0.5)+
+  ggplot(aes(x = mu_built_in, y = mean_nc)) +
+  geom_smooth(aes(color = outliers)) +
+  geom_point(aes(color = outliers), size = 1, alpha = 0.5) +
+  #geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = outliers), linewidth = 2, alpha = 0.5)+
   geom_hline(yintercept = 1)+
   geom_vline(xintercept = 0.5)+
  
-  labs(title = "", y = "C/C0", x = "mixing parameter") +
+  labs(title = "", y = "K/K0", x = "empirical mixing parameter") +
   theme_light() 
 
 
@@ -364,15 +438,51 @@ p2 <- summary_n_trials_cons %>%
 
 ```{r}
 #
- grid.arrange(p1 , 
+grid.arrange(p1 , 
               p2 , 
-              ncol = 2, widths=c(1,1.4) , heights= c(1,1), top = "multilevel")  
+              ncol = 2, widths=c(1,1.4) , heights= c(1,0.2), top = "")   
 ```
 
 
 ```{r}
 p1 + theme(legend.position="none") + coord_fixed(ratio = .6)
 ```
+
+```{r}
+ 
+#using empirical MU
+summary_n_trials_cons <- summary_n_trials_cons %>% 
+  mutate(mu_emp = round(mu_emp,2))
+         
+p1 <- summary_n_trials_cons  %>%
+  group_by(outliers,  mu_emp,) %>% 
+  summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
+  ggplot(aes(x = mu_emp, y = mean_nmi)) +
+  geom_smooth(aes(color = outliers),fill=NA) +
+  geom_point(aes(color = outliers), size = 2, alpha = 0.5) +
+  geom_vline(xintercept = 0.5)+
+  ylim(0,1)+  guides(fill="none") +
+  labs(title = "", y = "NMI", x = "empirical mixing parameter") +
+  theme_light()  +theme (legend.position="none")
+
+p2 <- summary_n_trials_cons %>%  
+  group_by(outliers, mu_emp) %>%  
+  summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
+  ggplot(aes(x = mu_emp, y = mean_nc)) +
+  geom_smooth(aes(color = outliers),fill=NA) +
+  geom_point(aes(color = outliers), size = 2, alpha = 0.5) +
+
+  geom_hline(yintercept = 1)+
+  geom_vline(xintercept = 0.5)+
+ 
+  labs(title = "", y = "K/K0", x = "empirical mixing parameter") +
+  theme_light() 
+
+
+grid.arrange(p1 , 
+              p2 , 
+              ncol = 2, widths=c(1,1.4) , heights= c(1,0.2), top = "") 
+  
 
 ```
 
@@ -382,19 +492,18 @@ p1 + theme(legend.position="none") + coord_fixed(ratio = .6)
 
 ```{r}
 g<-read_graph('./benchmark/LFR/LFR_benchmark_30.gml', format = 'gml')
+g<-igraph::simplify(g)
 #V(g)$id <- 1:vcount(g)
 E(g)$weight <- 1
 
-
-
-V(g)$community <- fastgreedy.community(g)$membership
 membership_matrix <- find_communities_N_times (g,
-                          n_trials=1000,
-                          methods=c(method), 
+                          n_trials=100,
+                          methods=c('ML'),
+                          resolution = c(0.8, 0.9,1.0,1.1, 1.2),
                           filename_summary = '',
                           filename_membership = '')
 
-cons_communities <- consensus(membership_matrix, gamma_lim = 0.2)
+cons_communities <- consensus(t(membership_matrix), gamma_lim = 0.5)
 V(g)$community<- as.factor(cons_communities$membership)
 V(g)$gamma <-  cons_communities$gamma
 
@@ -439,7 +548,7 @@ plot(gc, layout = layout.graphopt,
     edge.width = E(gc)$weight
     )
 
-V(g)[V(g)$gamma<0.4]
+V(g)[V(g)$gamma<0.5]
 V(g)$name<- V(g)$id
 
 selected_node_name <- 19
@@ -450,22 +559,94 @@ plot(gg, vertex.color = V(gg)$gamma)
 
 ```{r}
 #make a gamma creness graph
-df <- data.frame(name = V(g)$name, gamma = V(g)$gamma, coreness = coreness(g))
-sp <- df[ df$gamma <= 0.6 , ]$name
+df <- data.frame(name = V(g)$name, 
+                 gamma = V(g)$gamma, 
+                 coreness = coreness(g),
+                 com = V(g)$community)%>% filter(gamma > 0.0) 
+sp <- df[ df$gamma <= 0.7 , ] 
 sp
 
-df %>% ggplot( aes(x=coreness, y = gamma) ) +
-  geom_point(size = 4, alpha = 0.1, color = if_else(V(g)$name %in% sp, "red", "blue"))
+df %>% 
+  ggplot( aes(x=coreness, y = gamma) ) +
+  geom_point(size = 4, alpha = 0.7, color = if_else(df$gamma < 0.7, "red", "blue")) + 
+  ylim(0,1)+theme_light()
 
 ```
 ```{r}
-for (sn in sp[1:10]){
+for (sn in sp$name){
   selected_node_name <- sn
   gg<-induced.subgraph(g, find_neighbours(g, node <- selected_node_name, order = 2))
   col = as.factor(V(gg)$community)
-  col[ V(gg)$name == sn ] <- "white" 
-  plot(gg, vertex.color = col, vertex.label <- V(gg)$community)
+  #col[ V(gg)$name == sn ] <- "white"
+  vl = V(gg)$gamma
+  vl[ V(gg)$gamma > 0.7 ] <- ""
+  plot(gg, vertex.color = col, vertex.label = vl, vertex.size = 25, edge.width = E(g)$weight)
 }
+
+```
+
+```{r} 
+sp
+```
+
+
+# comm size distribution
+
+```{r}
+p<- ggplot()
+for (i in 1:100){
+  com_labels = array(t(membership_matrix[i,]))
+  com_size = data.frame(table(com_labels)) %>% mutate(j = i)
+  p <- p+geom_segment(data = com_size, aes (x=j, xend=j, y= min(Freq), yend=max(Freq)),
+                      color = 'lightgray', alpha = 0.5, linewidth = 1.5)
+    p <- p+geom_point(data = com_size, aes (x=j, y = Freq), size = 1.5, color = "blue", alpha = 0.5)
+
+}
+
+cons_comms <- consensus(t(membership_matrix), gamma_lim = 0.2)
+com_size = data.frame(table(cons_comms$membership)) 
+p<- p + geom_segment(data = com_size, aes (x=i+10, xend=i+10, y= min(Freq), yend=max(Freq)),
+                      color = 'lightgray', alpha = 0.5, linewidth = 1.5)
+p <- p+geom_point(data = com_size, aes (x=i+10, y = Freq), size = 1.5, color = "red", alpha = 0.5)
+
+
+
+cons_comms <- consensus(t(membership_matrix), gamma_lim = 0.5)
+com_size = data.frame(table(cons_comms$membership)) 
+p<- p + geom_segment(data = com_size, aes (x=i+15, xend=i+15, y= min(Freq), yend=max(Freq)),
+                      color = 'lightgray', alpha = 0.5, linewidth = 1.5)
+p <- p+geom_point(data = com_size, aes (x=i+15, y = Freq), size = 1.5, color = "purple", alpha = 0.5)
+
+
+
+cons_comms <- consensus(t(membership_matrix), gamma_lim = 0.8)
+com_size = data.frame(table(cons_comms$membership)) 
+p<- p + geom_segment(data = com_size, aes (x=i+20, xend=i+20, y= min(Freq), yend=max(Freq)),
+                      color = 'lightgray', alpha = 0.5, linewidth = 1.5)
+p <- p+geom_point(data = com_size, aes (x=i+20, y = Freq), size = 1.5, color = "green", alpha = 0.5)
+
+
+# group very small comms in community 0
+com_size = data.frame(table(cons_comms$membership)) 
+is_small <- com_size$Var1[com_size$Freq <=5] 
+cons_comms$membership[ cons_comms$membership %in% is_small ] <- 0
+com_size = data.frame(table(cons_comms$membership)) 
+
+# group uncertain vertices in community 0
+#cons_comms$membership [cons_comms$gamma < 0.8] <- 0
+#com_size = data.frame(table(cons_comms$membership)) 
+
+ 
+
+p<- p + geom_segment(data = com_size, aes (x=i+25, xend=i+25, y= min(Freq), yend=max(Freq)),
+                      color = 'lightgray', alpha = 0.5, linewidth = 1.5)
+p <- p+geom_point(data = com_size, aes (x=i+25, y = Freq), size = 1.5, color = "brown", alpha = 0.5)
+
+
+p+ theme_light() + #ylim(0,100)+
+  geom_hline(yintercept = 20, linewidth = 1)+ 
+  geom_hline(yintercept = 50, linewidth = 1) 
+ 
 
 ```
 

@@ -48,17 +48,17 @@ def add_true_labels(G):
 
 
 ```{python echo=TRUE }
-for mui in range(10,99,20):
+for mui in range(5,50,10):
     print("generating LFR benchmark. Fuzzyness mu = ", mui/100)
     gb = LFR_benchmark_graph( mu=mui/100, 
-        n= 250,  
-        tau1 = 2, 
+        n= 100,  
+        tau1 = 3, 
         tau2 = 2, 
-        average_degree=5, 
+        average_degree=15, 
         min_community=30, 
         seed=42)
     gt = add_true_labels(gb)
-    nx.write_gml(gt, f"./LFR_graphs/small/FLR_benchmark_{mui}.gml")
+    nx.write_gml(gt, f"FLR_mini_{mui}.gml")
 ```
 
 # 2- Visualization of network and communities (standard and custom layouts, k-core VS strength)

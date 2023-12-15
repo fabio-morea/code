@@ -1,0 +1,200 @@
+---
+title: "consensus ML on LFR"
+author: "Fabio Morea"
+date: "2023-065-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(aricode) # NMI 
+source('./functions_graph_analysis.R')
+```
+
+# Method proposed by LF 2019 
+recursively apply method A until results converge
+ 
+```{r}
+recursive_consensus <- function(M, threshold , met, t) {
+  j = 1
+  while (j <= 2) {
+    co_occ_matrix <-  normalized_co_occurrence((M))
+    
+    # all entries of co occurrenc ematrix below a threshold are set to zero
+    co_occ_matrix[co_occ_matrix < threshold] <- 0
+    
+    g_2 <-
+      graph_from_adjacency_matrix(
+        co_occ_matrix,
+        diag = FALSE,
+        weighted = TRUE,
+        mode = "upper"
+      )
+    print(table(E(g_2)$weight))
+    hist(E(g_2)$weight)
+    
+    V(g_2)$id <- V(g)$id
+    
+    cons_communities_2 <- cluster_louvain(g_2, resolution = 1.0)
+    
+    nmi = round(aricode::NMI(
+      as.factor(cons_communities_2$membership),
+      as.factor(comm_built_in)
+    ), 3)
+    nc_norm <-
+      round(length(table(cons_communities_2$membership)) / nc_builtin, 4)
+    summary_n_trials_cons <-
+      rbind(summary_n_trials_cons, data.frame(mu, met, j, nmi, nc_norm))
+    
+    
+    if (length(table(E(g_2)$weight)) == 1) {
+      break
+    } # reached consensus
+
+    M  <- find_communities_repeated (g_2, n_trials = t, method = met)
+    
+    j <- j + 1
+    print(paste(j, nmi, nc_norm))
+    
+    
+  }
+}
+
+```
+
+
+```{r}
+path <- "./benchmark/LFR/LFR_benchmark_"
+mui = seq(5,60,5)
+n_trials = 100
+gamma_lim = 0.80
+threshold = 0.50
+method_base = 'LP'
+```
+
+```{r}
+
+summary_n_trials_cons <- data.frame()
+nc_builtin <- c()
+
+for (mu in mui) {
+  print(paste("MU = ", mu))
+  j<-0
+
+  method <- paste0(method_base, '_ST')
+  print( method)
+  g <- load_benchmark_network(mui = mu,path = path, verbose = FALSE)
+  comm_built_in <- data.frame(name = V(g)$name, label_built_in = V(g)$comm_built_in)
+  nc_builtin <- max(comm_built_in$label_built_in)
+  
+  # single trials
+  M <- find_communities_repeated(g,
+                                   n_trials=n_trials, 
+                                   method = method,
+                                   shuffle = shuffle,
+                                   resolution = resolution,#for Louvain
+                                   verbose = FALSE)
+
+  for (i in 2:n_trials+1){
+    membs <- data.frame( name = M[,1], label_single = M[,i])
+    membs <- membs %>% merge(comm_built_in, by = 'name')
+    nmi = round(aricode::NMI(as.factor(membs$label_single),as.factor(membs$label_built_in)), 3)
+    nc_norm <-round(length(table(membs$label_single)) / nc_builtin, 4)
+    met <- method
+    summary_n_trials_cons <-rbind(summary_n_trials_cons, data.frame(mu, met, j, nmi, nc_norm))
+  }
+
+
+  
+  ## CONSENSUS GAMMALIM
+  method <- paste0(method_base, '_cons')
+  print(method)
+  nco <- normalized_co_occurrence(M)
+  hist(nco)
+    
+  CC <- consensus_communities(nco,gamma_lim=gamma_lim)
+  
+  # make a community object  
+  cons_communities_1 <- make_clusters(g, array(as.numeric(CC$cons_comm_label)))
+  cons_communities_1$gamma<-CC$gamma
+
+  #group outliers
+  #cons_communities_1$membership[ cons_communities_1$gamma > gamma_lim ] <-0
+  #
+  membs <- data.frame( name = CC$name, label_cons = CC$cons_comm_label)
+  membs <- membs %>% merge(comm_built_in, by = 'name')
+  nmi = round(aricode::NMI(as.factor(membs$label_cons),as.factor(membs$label_built_in)), 3)
+  nc_norm <-round(length(table(membs$label_cons)) / nc_builtin, 4)
+  met <- method
+
+  summary_n_trials_cons <- rbind(summary_n_trials_cons, data.frame(mu, met, j, nmi, nc_norm) )
+  print(paste(nmi, nc_norm))
+  
+  ## CONSENSUS LF 
+   
+  method <- paste0(method_base, '_cons_LF')
+  print( method)
+  j = 1
+  while (j <= 10) {
+    co_occ_matrix <-  normalized_co_occurrence((M))
+    
+    # all entries of co occurrenc ematrix below a threshold are set to zero  
+    co_occ_matrix[ co_occ_matrix < threshold ] <- 0
+    
+    g_2 <- graph_from_adjacency_matrix(co_occ_matrix, diag = FALSE, weighted=TRUE, mode="upper")
+    print(table(E(g_2)$weight))
+    hist(E(g_2)$weight)
+    
+    
+    V(g_2)$id <- V(g)$id
+
+    CCR <- cluster_louvain(g_2, resolution = 1.0)
+    
+     membs <- data.frame( name = CCR$name, label_cons = CCR$membership)
+     membs <- membs %>% merge(comm_built_in, by = 'name')
+     nmi = round(aricode::NMI(as.factor(membs$label_cons),as.factor(membs$label_built_in)), 3)
+     nc_norm <-round(length(table(membs$label_cons)) / nc_builtin, 4)
+     met <- method
+    summary_n_trials_cons <-rbind(summary_n_trials_cons, data.frame(mu, met, j, nmi, nc_norm))
+    
+    
+    
+    if (length(table(E(g_2)$weight)) == 1){ break } # reached consensus
+
+    M  <-  find_communities_repeated (g_2,n_trials = t,method ='LV')
+    j <- j+1
+    print(paste(j, nmi, nc_norm))
+    
+    
+  }
+}
+summary_n_trials_cons %>% write_csv('results_cons_LF_gammalim0.csv')
+ 
+```
+
+
+```{r}
+ggplot(data = summary_n_trials_cons, aes(x = mu, y = nmi, color = met))+
+  geom_point()+
+  geom_smooth()+
+  theme_light()
+```
+
+
+
+```{r}
+ggplot(data = summary_n_trials_cons, aes(x = mu, y = nc_norm, color = met))+
+  geom_point()+
+  geom_line()+
+  theme_light()
+```
+

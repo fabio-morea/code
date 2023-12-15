@@ -1,0 +1,278 @@
+---
+title: "variablity and order bias on Ring of Cliques"
+author: "Fabio Morea"
+date: "2023-06-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+
+```{r load library, message=FALSE, warning=FALSE}
+library(devtools)  
+#devtools::install_github("fabio-morea/CCD")
+library(CCD)
+library(igraph)
+library(tidyverse)
+```
+ 
+
+
+```{r}
+#a function to plot the RIng of Cliques
+
+plot_roc <- function( comms, g) {
+  
+  vertex_colors <- rep( "orange", vcount(g))
+  vertex_colors <- if_else (V(g)$gamma < 0.60,  "yellow",vertex_colors)
+  vertex_colors <- if_else (V(g)$gamma < 0.1,  "white",vertex_colors)
+   
+      
+  plot(comms,g,  
+       vertex.label=V(g)$gamma, 
+       vertex.size = 30, 
+       edge.width = E(g)$weight)
+  
+  
+  plot(g,  layout = layout_with_kk,
+       vertex.color =vertex_colors,
+       vertex.label=V(g)$gamma, 
+       vertex.size = 30, 
+       edge.width = E(g)$weight)
+  
+  table(V(g)$gamma)
+  
+  hist(V(g)$gamma)
+  
+  plot(V(g)$core ,V(g)$gamma)
+
+}
+```
+
+
+
+```{r}
+g<-CCD::make_ring_of_cliques(num_cliques = 4, 
+                             clique_size = 6, 
+                             add_center = TRUE, 
+                             add_bridges = FALSE)
+
+plot(g, vertex.size = 25)
+print(g)
+```
+Network are inherently NON-ordered. But their practical implementation in R is inhevitably ordered. 
+Specifically this ring of cliquest was built following a the order shown in the figure above. The adjacency matrix clearly shows the communities as blocks.
+```{r}
+adj_matrix_g <- igraph::as_adjacency_matrix(g)
+print(adj_matrix_g)
+```
+
+if we permute the nodes, we obtain the following matrix:
+```{r}
+gs <- igraph::permute(g, 
+                              sample(1:vcount(g), 
+                              size = vcount(g), 
+                              replace = FALSE ) )
+adj_matrix_gs <- igraph::as_adjacency_matrix(gs)
+print(adj_matrix_gs)
+```
+
+The shuffled version has different nodes id. However, we expect to find the same communities in g adn gs.
+```{r}
+plot(gs, vertex.size = 25)
+```
+on a single trial, it may seem that shuffling the network does not change the results.
+
+
+
+```{r}
+# leiden: resolution = 1.0 generates single-node clusters, probably due to the simmetry of this network. We set resolution = 0.99, which generates larger communities. 
+# 
+comms_g <- cluster_leiden(g, resolution = .99)
+comms_gs <- cluster_leiden(gs, resolution = .99)
+plot(comms_g,g, main = "Leiden - original network")
+plot(comms_gs,gs, main = "Leiden - shuffled network")
+```
+
+```{r}
+comms_g <- cluster_louvain(g, resolution = .99)
+comms_gs <- cluster_louvain(gs, resolution = .99)
+plot(comms_g,g, main = "Louvain - original network")
+plot(comms_gs,gs, main = "Louvain - shuffled network")
+```
+
+We may expect that the central node is assigned randompy to one of the four communities. In fact this happens only in the shuffled network.
+```{r}
+center_id <- which(degree(g)==4)
+print(paste("The central node id is ", center_id))
+results <- data.frame()
+for (i in 1:100) {
+        #comms <- cluster_leiden(g, resolution = 0.99)
+        comms <- cluster_louvain(g, resolution = 1)
+        #comms <- fastgreedy.community(gs)
+        nc <- max(comms$membership)
+        m_center <- comms$membership[center_id]
+        results <- rbind(results, data.frame( nc, m_center))
+}
+print("Central node is assigned to the following communities")
+table(results$m_center)
+plot(comms, g)
+```
+
+Repeat, shuffling the graph at each trial
+```{r}
+
+results_s <- data.frame()
+for (i in 1:1000) {
+  gs <- igraph::permute(g, 
+                              sample(1:vcount(g), 
+                              size = vcount(g), 
+                              replace = FALSE ) )
+  center_id <- which(degree(gs)==4)
+  
+  #print(paste("The central node id is ", center_id))
+  
+  #comms <- cluster_louvain(gs, resolution = 0.99)
+  #comms <- cluster_leiden(gs, resolution = 0.99)
+#comms <- walktrap.community(gs)
+#  comms <- label.propagation.community(gs)
+comms <- infomap.community(gs)
+
+  
+  nc <- max(comms$membership)
+  m_center <- comms$membership[center_id]
+  results_s <- rbind(results_s, data.frame( nc, m_center))
+}
+print("Central node is assigned to the following communities")
+table(results_s$m_center)
+plot(comms, gs)
+
+```
+
+   
+  
+# analysis of order bias t = 1000
+```{r}
+
+find_communities <- function(g,method,  verbose = FALSE) {
+    # applies selected method
+    # applies resolution for LV and LD
+    # undirected(g) for LV and LD
+    # 
+    method = substr(method, 1, 2)
+    if (method == "LV") {
+        comms <- cluster_louvain(as.undirected(g, mode = 'each'), resolution = 1)
+    } else if (method == "LD") {
+        comms <-
+            cluster_leiden(as.undirected(g, mode = 'each'), 
+                           #resolution_parameter = quantile(strength(g))[2] / (gorder(g) - 1)
+                           resolution_parameter = 0.99
+                           )
+    } else if (method == "IM") {
+        comms <- infomap.community(g)
+    } else if (method == "LP") {
+        comms <- label.propagation.community(g)
+    } else if (method == "WT") {
+        comms <- walktrap.community(g)
+    } else {
+        print("No valid method")
+        stop
+    }
+    comms$algorithm = method
+    
+    if (verbose == TRUE) {
+        print(paste("Community detection with ", method, "completed."))
+    }
+    return(comms)
+}
+
+```
+
+
+```{r}
+methods <- c( 'LD', 'LP', 'LV', 'WT')
+
+
+
+shuff = "G"
+
+center_id <- which(degree(g)==4)
+
+results <- data.frame()
+
+for (met in methods) {
+    for (i in 1:1000) {
+        comms <- find_communities(g, met)
+        nc <- max(comms$membership)
+        m_center <- comms$membership[center_id]
+        results <- rbind(results, data.frame(met, shuff, nc, m_center))
+
+    }
+}
+ 
+##shuffle ids before comm detection
+
+shuff = "G*"
+
+for (met in methods) {
+    for (i in 1:1000) {
+        gs <- igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE ) )
+        center_id <- which(degree(gs)==4)
+
+        comms <- find_communities(gs, met)
+        nc <- max(comms$membership)
+        m_center <- comms$membership[center_id]
+        results <- rbind(results, data.frame(met, shuff, nc, m_center))
+
+    }
+}
+
+
+
+table_center_shuffled <- results %>% filter(shuff == 'G*')%>% 
+    mutate(algorithm = met)%>% select(-met)%>%
+    group_by(algorithm, m_center) %>%
+  summarise(n = n()) %>%
+  mutate(freq =  (n / sum(n))) %>%
+    select(-n)%>%
+    arrange(m_center)%>%
+    pivot_wider(names_from = m_center, values_from = freq, values_fill = 0.00) 
+
+
+table_center_fixed <- results %>% filter(shuff == 'G')%>%
+    mutate(algorithm = met)%>% select(-met)%>%
+    group_by(algorithm, m_center) %>%
+  summarise(n = n()) %>%
+  mutate(freq =  (n / sum(n))) %>%
+    select(-n)%>%
+    arrange(m_center)%>%
+    pivot_wider(names_from = m_center, values_from = freq, values_fill = 0.00) 
+
+print(table_center_fixed%>%arrange(algorithm))
+
+print(table_center_shuffled%>%arrange(algorithm))
+
+
+
+
+```
+
+```{r}
+results %>%  rename(algorithm = met)%>%
+  ggplot(aes(y = m_center, fill = algorithm))+geom_bar()+facet_grid(shuff~ algorithm)+ theme_bw()+
+  geom_vline(xintercept = 250, linetype = 'dashed') + theme(aspect.ratio = 1.1) + 
+  xlab('number of assignation over 1000 trials')+
+  ylab('label assigned to central node')
+
+```
+  
+```{r}
+plot(comms, gs)
+```
+  
+  

@@ -17,48 +17,112 @@ library(igraph)
 library(tidyverse)
 library(gridExtra)
 library(aricode) # NMI 
+library(rjson)
+library(jsonlite)
 source('./functions_graph_analysis.R')
+path <- "./benchmark/LFR/LFR_benchmark_"
+
 ```
 
 # function
+```{r}
+load_benchmark_network <- function(mui, path = path, verbose = FALSE) {
+    #upload graph
+    filename = paste0(path, mui, ".gml")
+    print(filename)
+    g <- read_graph(filename, format = "gml")
+    # extract giant component
+    #components <- igraph::clusters(g, mode = "weak")
+    #g <-induced_subgraph(g, V(g)[components$membership == which.max(components$csize)])
+    # set names and weight (ww <- 1.0)
+    
+    V(g)$core <- coreness(g)
+    V(g)$str <- strength(g)
+    V(g)$name <- paste0("V" , V(g)$label)
+    E(g)$ww <- 1.0
+    # print
+    if (verbose == TRUE) {
+        print(paste0("Loaded benchmark network ", path, mui, ".gml"))
+        print(paste("Giant component size :", length(V(g)$community)))
+        print(paste("Built-in communities: ", max(V(g)$community)))
+        mod <- round( modularity(g, array(V(g)$community+1) ), digits = 4)
+        print(paste("Modularity of built-in communities: ", mod))
+        mu <- round( empirical_mu(g), 4)
+        print(paste("Empirical mixing parameter", mu))
+    } 
+    return(g)
+}
+```
+
  
 ```{r}
 consensus_from_file <-
-    function(mu_values, gamma_lim, group_outliers = FALSE) {
-        if (group_outliers) {group_out <- "_G"} else {group_out <- ""}
-
-        for (mu in mu_values) {
-            summary_results_cons <- data.frame()
-            membership_matrix <- c()
-            print(mu)
-            g <- load_benchmark_network(mui = mu,
-                                        path = path,
-                                        verbose = FALSE)
-            summary_results <-read_csv(paste0('results/summary_single_', mu, '.csv'),show_col_types = FALSE)
-            summary_results$method <-paste0(summary_results$method, '_cons_', gamma_lim)
-            membership_matrix <- read_csv(paste0('results/matrix_single_', mu, '.csv'),show_col_types = FALSE)
-            
-            for (met in unique(summary_results$method)) {
-                print(met)
-                selected_rows <- (summary_results$method == met)
-                cons_communities <- consensus(t(membership_matrix[selected_rows,]), gamma_lim = gamma_lim)
-                cons_communities$algorithm <- met
-                if (group_outliers) {
-                    cons_communities$membership[cons_communities$gamma < gamma_lim] <- 0
-                }
-                results <- analyse_communities(g, cons_communities, verbose = FALSE)
-                results$mu_nominal <- mu/100
-                summary_results_cons <- rbind(summary_results_cons, results)
-                
-            }
-            file_summary <- paste0('results/summary_cons_', mu, '_',gamma_lim,'.csv')
-        print(paste('writing ' , file_summary))
-        summary_results_cons %>% write.csv(file_summary)
-
-            
-        }
-
+  function(mu_values, gamma_lim, group_outliers = FALSE) {
+    j <- 1
+    dfresults <- tibble(mu = numeric(),
+                        trial = numeric(), 
+                        method = character(),
+                        membership = list(),
+                        gamma = list()) %>% head(0)
+    if (group_outliers) {
+      group_out <- "_G"
+    } else {
+      group_out <- ""
     }
+    
+    for (mu in mu_values) {
+      summary_results_cons <- data.frame()
+      membership_cons <- data.frame()
+      print(mu)
+      g <- load_benchmark_network(mui = mu,
+                                  path = path,
+                                  verbose = FALSE)
+      summary_results <-
+        read_csv(paste0('results/summary_single_', mu, '.csv'),
+                 show_col_types = FALSE)
+      summary_results$method <-
+        paste0(summary_results$method, '_cons_', gamma_lim)
+      membership_matrix <-
+        read_csv(paste0('results/matrix_single_', mu, '.csv'),
+                 show_col_types = FALSE)
+      
+      for (met in unique(summary_results$method)) {
+        print(met)
+        selected_rows <- (summary_results$method == met)
+        cons_communities <-consensus(t(membership_matrix[selected_rows, ]), gamma_lim = gamma_lim)
+        cons_communities$algorithm <- met
+        if (group_outliers) {
+          cons_communities$membership[cons_communities$gamma < gamma_lim] <- 0
+        }
+        results <-  analyse_communities(g, cons_communities, verbose = FALSE)
+        results$mu_nominal <- mu / 100
+        summary_results_cons <-
+          rbind(summary_results_cons, results)
+        
+         dfresults[j, ] <- list(
+           mu = mu, 
+           trial = i, 
+          method = met,
+          membership = list(cons_communities$membership),
+          gamma = list(cons_communities$gamma)) 
+        j <- j + 1
+        
+        
+      }
+      file_summary <-
+        paste0('results/summary_cons_', mu, '_', gamma_lim, '.csv')
+      print(paste('writing ' , file_summary))
+      summary_results_cons %>% write.csv(file_summary)
+      file_results <-        paste0('results/results_cons_', mu, '_', gamma_lim, '.csv')
+      
+      
+      
+    }
+    json_data <- toJSON(dfresults)
+    write(json_data, file = paste0('results/results_cons_', gamma_lim, '.json'))
+    print("Completed.")
+    
+  }
 
  
 ```
@@ -67,6 +131,7 @@ consensus_from_file <-
 
 ```{r}
 mu_values = seq(5, 60, 5)
+gamma_lim = 0.2
 ```
 
 
@@ -85,6 +150,8 @@ consensus_from_file(
 
 
 ```{r}
+mu_values = seq(5, 60, 5)
+gamma_lim = 0.2
 data_to_plot <- data.frame()
 for (mu in mu_values) {
     print(mu)
@@ -148,6 +215,8 @@ consensus_from_file(
 
  
 ```{r}
+mu_values = seq(5, 60, 5)
+gamma_lim = 0.9
 data_to_plot <- data.frame()
 for (mu in mu_values) {
     print(mu)
@@ -199,4 +268,56 @@ data_to_plot1 <- rbind(data_to_plot%>% select(colnames(summary_results)), summar
 ```
 
  
+# PLOT
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+json_data <- fromJSON('results/results_cons_0.2.json')
+cols_to_extract <- c('method', 'trial', 'mu')
+tmp_list <- list()
+nn <- length(cols_to_extract)
+for (i in 1:nn){
+    tmp_list[[i]] <- pluck(json_data, cols_to_extract[i]) 
+}
+df <- data.frame(tmp_list)
+names(df) <- cols_to_extract
+gammas <-   pluck(json_data, "gamma")
+membs  <-   pluck(json_data, "membership")
+
+n_trials = length(gammas)
+n_nodes <- 1000
+# extract gamma, which is a list of 1000 
+for (i in 1:n_trials){ 
+  df$gamma[i] <- list(gammas[[i]]) 
+  #df$membs[i] <- list(membs[[i]]) 
+  } 
+
+# tidy dataset ready for plotting distribution of gammas
+df2 <- df %>%
+    unnest(gamma) %>%
+    pivot_longer(cols = c(gamma), names_to = 'tmp', values_to = 'gamma')  %>% 
+    select(-tmp) %>%  
+    arrange(method) %>%
+  mutate (mm = substr(method,1,2))
+
+
+
+df2  %>% filter(mu %in% c(5, 25, 55)) %>% filter(mm %in% c('LP', 'ML'))%>%
+  ggplot(aes(x = gamma)) +
+  facet_grid(cols = vars(method), rows = vars(mu)) +
+  xlim(0.7, 1.1) +
+  
+  #geom_density(adjust = 4,  color = "red") +
+  geom_histogram(aes(y = ..density..),
+                 position = "identity",
+                 alpha = 0.5) +
+  labs(title = "distribution of gamma",
+       x = "gamma",
+       y = "Percentage") 
+ 
+```
+
+
+```{r}
+
+```
 

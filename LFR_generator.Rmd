@@ -1,0 +1,113 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+  
+```{r}
+#install.packages("remotes")
+#remotes::install_github("schochastics/netUtils")
+library(netUtils)
+library(VGAM)
+library(igraph)
+library(devtools)  
+#devtools::install_github("fabio-morea/CCD", force = TRUE)
+library(CCD)
+print("packages loaded")
+
+
+ 
+```
+
+ 
+   
+```{r}
+make_benchmark_network <- function(n,
+                                   average_degree,
+                                   max_degree,
+                                   min_community,
+                                   max_community,
+                                   mu,
+                                   tau1,
+                                   tau2, 
+                                   max_trials=100) {
+    err_check <- TRUE
+    gLFR <- NULL
+    trial <- 0
+    while (err_check & trial < max_trials) {
+        trial <- trial + 1
+        tryCatch(
+            gLFR <- sample_lfr(
+                n = n,
+                average_degree = average_degree,
+                max_degree = max_degree,
+                min_community = min_community,
+                max_community = max_community,
+                mu = mu ,
+                tau1 = tau1,
+                tau2 = tau2
+            ),error = function(e)NULL)
+        if (is.null(gLFR)) {
+            print(paste("unable to generate netowork - trial", trial))
+        } else {
+            err_check <- FALSE
+        }
+    }
+    if (trial > max_trials) {
+        print(paste("unsuccessfully tried",max_trials,"times. Please provide a different set of params"))
+        return(-1)
+    } else {
+        return (gLFR)
+    }
+    
+}
+
+testG <- make_benchmark_network(
+            n = 1000,
+            average_degree = 5,
+            max_degree = 20,
+            min_community = 5,
+            max_community = 50,
+            mu = 0.2,
+            tau1 = 3.0,
+            tau2 = 2.0
+            
+        )
+print(testG)
+```
+   
+   
+```{r}
+   
+for (mui in seq(5, 60, 5)) {
+    for (i in 1:2)  {
+        g <- make_benchmark_network(
+    n = 1000,
+            average_degree = 20,
+            max_degree = 50,
+            min_community = 20,
+            max_community = 50,
+            mu = mui/100,
+            tau1 = 2.0,
+            tau2 = 1.5
+            
+        )
+        V(g)$name <- 1:vcount(g)
+        E(g)$weight <- 1.0
+        E(g)$w <- 1.0
+        comm <- CCD::consensus_community_detection(g)
+        V(g)$community <- comm$membership
+        emu = CCD::empirical_mu(g)
+ 
+        
+        print(paste("Mu", mui/100, round(emu,2), "i: ", i, "nc: ", max(comm$membership)))
+        print(ecount(g))
+        plot(table(comm$membership))
+        gc <- CCD::make_community_network(g)
+        plot(gc,vertex.label = V(gc)$name,edge.width = E(gc)$weight / 10)
+    }
+}
+
+ 
+
+```
+ 

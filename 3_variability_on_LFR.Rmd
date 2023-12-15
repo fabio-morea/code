@@ -17,10 +17,111 @@ library(igraph)
 library(tidyverse)
 library(gridExtra)
 library(aricode) # NMI 
+library(rjson)
+library(jsonlite)
 source('./functions_graph_analysis.R')
 
 ```
  
+
+
+generate figure for paper
+
+```{r eval=FALSE, include=TRUE}
+mu = 30
+#methods = c("LV", "LD", "LP", "ML", "WT")
+met = 'LV'
+n_trials <- 100
+results1 <- data.frame()
+
+print(paste('analysing benchmark', mu))
+g0 <- load_benchmark_network(mui = mu,
+                              path = path,
+                              verbose = FALSE)
+for (i in 1:n_trials){
+  
+g<- g0
+
+tmp_comms <- find_communities(g, method = met)
+V(g)$community <- tmp_comms$membership
+results1 <- rbind(results1,analyse_communities(g, tmp_comms))
+
+ 
+}
+
+results1$shuffled <- FALSE
+
+```
+
+
+
+
+```{r eval=FALSE, include=TRUE}
+ 
+results2 <- data.frame()
+
+print(paste('analysing benchmark', mu))
+g0 <- load_benchmark_network(mui = mu,
+                              path = path,
+                              verbose = FALSE)
+for (i in 1:n_trials){
+  
+g<- igraph::permute(g0, sample(1:vcount(g0), size = vcount(g0), replace = FALSE))
+
+tmp_comms <- find_communities(g, method = met)
+V(g)$community <- tmp_comms$membership
+results2 <- rbind(results2,analyse_communities(g, tmp_comms))
+
+}
+
+results2$shuffled <- TRUE
+
+  
+
+```
+
+
+
+
+```{r}
+results <- rbind(results1, results2)
+p1 <-
+    results %>% 
+    ggplot(aes(y = shuffled, x = nmi,color = shuffled)) +
+    geom_boxplot(
+        outlier.shape = 19,
+        outlier.size = 3  
+    ) + geom_jitter()+
+    stat_boxplot(aes(color = method), geom = 'errorbar') +
+    labs(title = "variability of results", x = "NMI", y = "methods") +
+    theme_light()  + theme(legend.position = "none")
+
+p2 <- results %>%
+  ggplot(aes( y = shuffled, x = nc_norm, color = shuffled)) +
+  geom_boxplot(aes(color = method),  outlier.shape = 19, outlier.size = 3 )+
+stat_boxplot(aes(color = method), geom ='errorbar')+
+        geom_vline(xintercept =1, color = 'black')+
+
+      labs(title = "number of communities", x = "K/K0", y = "") +
+  theme_light()  + theme(legend.position="none")
+
+
+
+p3<-results  %>%
+    select(mu_emp, mu_built_in, shuffled) %>%
+    ggplot(aes(y = shuffled, x = mu_emp, color = shuffled)) +
+    geom_boxplot()+
+    #geom_vline(xintercept = 0.4182, color = 'black', stroke = 4)+
+    #xlim(0.30,0.45)+
+    labs(title = "mixing parameter", y = "", x = "empirical mixing parameter") +
+
+    theme_light()   + theme(legend.position="none")
+ 
+
+grid.arrange(p1, p2, p3,  ncol = 3, widths = c(0.3, 0.3, 0.3) )
+```
+
+
 
 ```{r}
 #getwd()
@@ -29,18 +130,22 @@ E(g)$w<-1.0
 empirical_mu(g)
 comms <- find_communities (g, method = 'ML')
 plot(comms,g)
-analyse_communities(g, comms , verbose = TRUE)
 ```
 
   
  
 
 ```{r}
-find_communities_N_times (g, 
-                          n_trials=20,
-                          methods=c('IM','ML','LP','FG','LV' ,'WT'),
-                          filename_summary = 'n_trials_summary_results.csv',
-                          filename_membership = 'n_trials_membership.csv')
+tmpdf <- find_communities_N_times (g, 
+                          n_trials=3,
+                          methods=c('LV', 'LD', 'IM','LP','WT'),
+                          shuffle = TRUE)
+
+
+json_data <- toJSON(tmpdf)
+write(json_data, file=paste0("_results.json"))
+print("Completed.")
+
 ```
 
 
@@ -257,7 +362,7 @@ documentation](https://networkx.org/documentation/stable/reference/generated/net
 The following code chunk defines a function to load a benchmark network
 (previously generated).
 
-```{r  echo=TRUE}
+ ```{r  echo=TRUE}
 load_benchmark_network <- function(mui, path = path, verbose = FALSE) {
     #upload graph
     filename = paste0(path, mui, ".gml")
@@ -267,6 +372,7 @@ load_benchmark_network <- function(mui, path = path, verbose = FALSE) {
     #components <- igraph::clusters(g, mode = "weak")
     #g <-induced_subgraph(g, V(g)[components$membership == which.max(components$csize)])
     # set names and weight (ww <- 1.0)
+    V(g)$comm_built_in <-  V(g)$community
     V(g)$core <- coreness(g)
     V(g)$str <- strength(g)
     V(g)$name <- paste0("V" , V(g)$label)
@@ -281,7 +387,7 @@ load_benchmark_network <- function(mui, path = path, verbose = FALSE) {
     } 
     return(g)
 }
-```
+ ```
 
 To illustrate the structure of a reference netowotk, we load a network
 with well-defined communities ($mu = 0.20$) and show a coreness-strength
@@ -592,94 +698,55 @@ for (mu in mu_values) {
 
 ```
 
-## MAIN sumulation
+# MAIN sumulation
 generates 2 files in the 'results' folder
 - summary
 - matrix of membership vectors (by ROW)
 eval = false: will not be executed by "run ALL"
 
 ```{r eval=FALSE, include=TRUE}
-mu_values <- seq(5, 60, 5)
-n_trials <- 100
+mu_values <- c(5)#seq(5, 60, 5)
+n_trials <- 10
+
+results <- data.frame()
 
 for (mu in mu_values) {
-    print(paste('analysing benchmark', mu))
-    g <- load_benchmark_network(mui = mu,
-                                path = path,
-                                verbose = FALSE)
-    
+  print(paste('analysing benchmark', mu))
+  g <- load_benchmark_network(mui = mu,
+                              path = path,
+                              verbose = FALSE)
+  
+  results <- rbind(results,
     find_communities_N_times (
-        g,
-        n_trials = n_trials,
-        methods = c("FG", "IM", "LP", "ML", "WT", "LV"),
-        filename_summary = paste0('results/summary_single_', mu, '.csv'),
-        filename_membership = paste0('results/matrix_single_', mu, '.csv')
+      g,
+      n_trials = n_trials,
+      methods = c("LV"), "LD", "LP", "ML", "WT"),
+      shuffle = TRUE,
+      filename_summary = paste0('results/summary_single__', mu, '.csv'),
+      filename_membership = paste0('results/matrix_single__', mu, '.csv')
     )
-    
+  )
 }
 
-    
-```
-
-```{r read csv repeated results, message=FALSE, warning=FALSE}
+ 
 summary_results <- data.frame()
 membership_matrix <- c()
 for (mu in mu_values) {
     summary_results <-
         rbind(summary_results, 
-              read_csv(paste0('results/summary_single_', mu, '.csv')))
+              read_csv(paste0('results/summary_single__', mu, '.csv')))
     membership_matrix <-
         rbind(membership_matrix, 
-              read_csv(paste0('results/matrix_single_', mu, '.csv')))
+              read_csv(paste0('results/matrix_single__', mu, '.csv')))
 }
 
 ```
 
-  
-
- ` `{r}
-p1 <- summary_results %>% 
-  group_by(method, mu_built_in) %>% 
-  summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
-  
-  ggplot(aes(x = mu_built_in, y = mean_nmi)) +
-  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
-  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
-  geom_line(aes(color = method)) +
-  geom_point(aes(color = method)) +
-  geom_linerange(aes(ymin =mean_nmi-2*sd_nmi, ymax = mean_nmi + 2*sd_nmi, color = method), linewidth = 2, alpha = 0.5)+
-  geom_hline(yintercept = 0.5)+
-  geom_vline(xintercept = 0.5)+
-  labs(title = "NMI ", y = "NMI", x = "empirical mixing parameter") +
-  theme_light()   + theme(legend.position="none")
-p1
- 
-
-  
-
- 
-p2 <- summary_results %>% 
-  group_by(method, mu_built_in) %>%  
-  summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
-  
-  ggplot(aes(x = mu_built_in, y = mean_nc)) +
-  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
-  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
-  geom_line(aes(color = method)) +
-  geom_point(aes(color = method)) +
-  geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = method), linewidth = 2, alpha = 0.5)+
-  geom_hline(yintercept = 1)+
-  geom_vline(xintercept = 0.5)+
-  labs(title = "number of communities ", y = "normalized number of communities C/C0", x = "empirical mixing parameter") +
-  theme_light() + theme(legend.position="none")
-
-p2
-
- ``
+   
 
 ```{r}
 p1 <-
-    summary_results %>% filter(mu_built_in == 0.4182) %>% filter(method != 'LV') %>%
+    summary_results %>% 
     ggplot(aes(y = method, x = nmi)) +
     geom_boxplot(
         aes(color = method),
@@ -690,7 +757,7 @@ p1 <-
     labs(title = "variability of results", x = "NMI", y = "methods") +
     theme_light()  + theme(legend.position = "none")
 
-p2 <- summary_results %>% filter(mu_built_in == 0.4182)%>% filter(method != 'LV')%>%
+p2 <- summary_results %>%
   ggplot(aes( y = method, x = nc_norm)) +
   geom_boxplot(aes(color = method),  outlier.shape = 19, outlier.size = 3 )+
 stat_boxplot(aes(color = method), geom ='errorbar')+
@@ -701,12 +768,12 @@ stat_boxplot(aes(color = method), geom ='errorbar')+
 
 
 
-p3<-summary_results %>% filter(mu_built_in == 0.4182) %>% filter(method != 'LV')%>%
+p3<-summary_results  %>%
     select(mu_emp, mu_built_in, method) %>%
     ggplot(aes(y = method, x = mu_emp, color = method)) +
     geom_boxplot()+
-    geom_vline(xintercept = 0.4182, color = 'black', stroke = 4)+
-    xlim(0.30,0.45)+
+    #geom_vline(xintercept = 0.4182, color = 'black', stroke = 4)+
+    #xlim(0.30,0.45)+
     labs(title = "mixing parameter", y = "", x = "empirical mixing parameter") +
 
     theme_light()   + theme(legend.position="none")
