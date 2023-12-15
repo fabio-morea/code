@@ -134,7 +134,7 @@ find_communities_N_times <- function(n_trials,
 ```{r}
 g<-as.undirected(read.graph('benchmark/random/random_500_0.5.gml', format='gml'))
 
-mts <- c( "IM", "LP", "ML", "WT")
+mts <- c( "IM", "LP", "ML", "WT", "FG")
 
 find_communities_N_times (g, 
                           n_trials=50,
@@ -233,7 +233,7 @@ dev.off()
 ```
 ```{r}
 g<-as.undirected(read.graph('benchmark/ring_of_cliques/ring_of_cliques_5_20_B_C.gml', format='gml'))
-mts <- c( "IM", "LP", "ML", "WT")
+mts <- c( "IM", "LP", "ML", "WT", "FG")
 
 find_communities_N_times (g, 
                           n_trials=10,
@@ -272,7 +272,7 @@ nmis %>% write_csv('roc520_NMIs.csv')
 
 ```{r}
 g<-as.undirected(read.graph('benchmark/ring_of_cliques/ring_of_cliques_5_20_B_C.gml', format='gml'))
-mts <- c( "IM", "LP", "ML", "WT")
+mts <- c( "IM", "LP", "ML", "WT", "FG")
 
 find_communities_N_times (g, 
                           n_trials=10,
@@ -321,7 +321,7 @@ membership_matrix <- as.matrix(read_csv('roc810_n_trials_membership.csv'))
 nmis <- data.frame()
 
 membership_matrix_mu <- membership_matrix
-mts <- c( "IM", "LP", "ML", "WT")
+mts <- c( "IM", "LP", "ML", "WT", "FG")
 for (met1 in 1:length(mts)) {
   for (met2 in 1:length(mts)) {
     if (met1 != met2) {
@@ -344,10 +344,11 @@ for (met1 in 1:length(mts)) {
 nmis %>% write_csv('roc810_NMIs.csv')
 
 ```
+
 ```{r}
 
 g<-as.undirected(read.graph('benchmark/ring_of_cliques/ring_of_cliques_4_6_C_B.gml', format='gml'))
-mts <- c( "IM", "LP", "ML", "WT")
+mts <- c( "IM", "LP", "ML", "WT", "FG")
 
 find_communities_N_times (g, 
                           n_trials=10,

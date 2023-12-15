@@ -1,0 +1,617 @@
+---
+title: "consensus ML on LMN"
+author: "Fabio Morea"
+date: "2023-07-16"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(ggpubr)
+library(aricode) # NMI 
+source('./functions_graph_analysis.R')
+```
+
+load data
+
+```{r}
+g <- read_graph("./LMnetwork/LMN.csv", format = "graphml")
+g <- induced.subgraph(g, V(g)[components(g)$membership == which.max(components(g)$csize)])#giant component
+g <- as.undirected(g, mode = "each",edge.attr.comb = igraph_opt("sum"))
+g <-  igraph::simplify(g, edge.attr.comb = igraph_opt("sum"))
+  
+nc = c()
+mod = c()
+for (i in 1:2000){
+  communities <- cluster_louvain(g, resolution = 1.0)
+  nc <- rbind(nc, max(communities$membership))
+  mod <- rbind(mod, communities$modularity[1])
+}
+hist(nc)
+hist(mod)
+
+df <- data.frame(1:nrow(nc)) %>% cbind(mod) %>% cbind(nc) %>%
+  mutate(modularity = mod, number_of_communities = nc)
+p1 <- df %>% ggplot(aes (x = modularity))+ geom_histogram(color = 'white', fill = "blue")+ theme_light()
+p2 <- df %>% ggplot(aes (x = number_of_communities))+ geom_bar(fill = 'green')+ theme_light()
+p3 <- df %>% ggplot(aes (x = modularity, y = number_of_communities))+ geom_point()+theme_light()
+
+ggarrange(p1,p2, p3, ncol = 3)+theme(aspect.ratio = .6)
+```
+ 
+# main suimulation: comms on LFR, N times with consensus and 3 strategies for outliers
+
+
+
+```{r}
+met <- 'LV'
+method <- met
+gamma_lim = 0.5
+group_outliers = FALSE
+membership_matrix <- find_communities_N_times (
+  g,
+  n_trials = 100,
+  methods = c(met),
+  resolution = c(0.8, 0.9, 1.0, 1.1, 1.2),
+  filename_summary = '',
+  filename_membership = ''
+)
+
+summary_results_cons <- data.frame()
+membership_cons <- data.frame()
+cons_communities <-
+  consensus(t(membership_matrix), gamma_lim = gamma_lim)
+cons_communities$algorithm <- met
+if (group_outliers) {
+  cons_communities$membership[cons_communities$gamma < gamma_lim] <- 0
+}
+membership = list(cons_communities$membership)
+gam = (cons_communities$gamma)
+hist(gam)
+E(g)$w = E(g)$weight
+V(g)$community <- cons_communities$membership
+V(g)$gamma <- cons_communities$gamma
+
+empirical_mu(g)  #validity
+hist(V(g)$core)
+
+ 
+```
+
+
+```{r}
+gdf <- data.frame(
+  CF = V(g)$name,
+  gm = V(g)$gamma,
+  k_core = V(g)$core, 
+  strength= V(g)$str,
+  com = V(g)$community
+) 
+
+comp_info <- read_csv("./LMnetwork/employers.csv")  %>% unique()
+
+gdf <- gdf %>% merge(comp_info, by = 'CF')  %>%
+  mutate(color = "lightgray") %>%
+  mutate(color = if_else(com == 3, "green", color)) %>%
+  mutate(color = if_else(com == 7, "yellow", color)) %>%
+  mutate(color = if_else(com == 13, "red", color))
+  
+         
+         
+gdf %>% ggplot(aes(x = k_core, y = strength)) +
+  geom_point(size = if_else(gdf$com %in% c(3,7,13), 5,2),
+             alpha = .5,
+             color = gdf$color) + scale_y_log10() + theme_light()
+
+outliers <- gdf[gdf$gamma < 1, ]
+```
+
+FIGURE for seminar:
+
+```{r}
+selected = "CF_05165060962"
+comm_selected = V(g)$community[ V(g)$name == selected ]
+gamm <- V(g)$gamma[ V(g)$name == selected ]
+print(paste(comm_selected, gamm))
+
+neibs1 =  igraph::neighborhood(g, order = 1, V(g)$name  == selected)
+gsub1 <- induced.subgraph(g, unique(unlist(neibs1)) )
+comms_neibs <- V(gsub1)$community
+
+names_selected = V(g)$name[ V(g)$community %in% comms_neibs ]
+gsub2 <- induced.subgraph(g, unique(unlist(names_selected)) )
+
+x<- table(V(gsub2)$community)
+intra_com <- x[  which( names(x) == comm_selected) ]
+all_edges <- sum(unname(x)) 
+mu_selected <- intra_com / all_edges
+ 
+
+
+plot(gsub2, layout = layout.graphopt,
+     vertex.label = V(gsub2)$community,
+     vertex.color = "white",
+     vertex.size = if_else(V(gsub2)$name == selected, 25,15),
+     edge.width = E(gsub2)$weight*5)
+
+table(V(g)$community)
+
+
+
+```
+```{r}
+table(V(g)$community)
+```
+
+ 
+
+# figure for seminar: UNITS
+
+```{r}
+ 
+selected = "CF_80013890324"
+comm_selected = V(g)$community[ V(g)$name == selected ]
+gamm <- V(g)$gamma[ V(g)$name == selected ]
+print(paste(comm_selected, gamm))
+ 
+names_selected = V(g)$name[ V(g)$community %in% comm_selected ]
+gsub2 <- induced.subgraph(g, unique(unlist(names_selected)) )
+ 
+gsub3 <- igraph::simplify( induced.subgraph(g, V(gsub2)$name[ V(gsub2)$str > 2.0 ] ) )
+
+ 
+ 
+
+
+plot(gsub3, layout = layout.graphopt,
+     vertex.label = NA,
+     vertex.color = "white",
+     vertex.size = V(gsub3)$str**.5,
+     edge.width = E(gsub3)$weight)
+
+table(V(gsub3)$gamma)
+
+gdf <- data.frame(
+  CF = V(gsub3)$name,
+  gm = V(gsub3)$gamma,
+  k_core = V(gsub3)$core, 
+  strength= V(gsub3)$str,
+  com = V(gsub3)$community
+) 
+
+comp_info <- read_csv("./LMnetwork/employers.csv")  %>% unique()
+
+gdf <- gdf %>% merge(comp_info, by = 'CF')  %>%
+  mutate(color = if_else(com == comm_selected, "blue", "black"))  %>%
+  mutate(color = if_else((com == comm_selected)&(gm < 1) , "red", color))  %>%
+  mutate(shape = if_else((com == comm_selected)&(gm < 1) , 16,1))  %>%
+  mutate(size  = if_else((com == comm_selected) , 5,2))
+
+
+
+gdf %>% ggplot(aes(x = k_core, y = strength)) +
+  geom_point(shape = gdf$shape,
+             size = gdf$size,
+             color = gdf$color) + scale_y_log10() + theme_light()
+
+ 
+
+```
+```
+
+
+
+## 1 incorporate (LP, gmin = 0.2)
+```{r}
+method_base <- 'ML'
+method <- paste0(method_base, '_inc')
+gamma_lim = 0.5
+summary_n_trials_cons <- data.frame()
+nc_builtin <- c()
+for (mu in mui) {
+  print('-')
+  g <- load_benchmark_network(mui = mu,
+                              path = path,
+                              verbose = TRUE)
+  
+  nc_builtin <- c(nc_builtin,max(V(g)$community))
+  
+  membership_matrix <- find_communities_N_times (g,
+    n_trials = 100,
+    methods = substr(method,1,2))
+   
+  cons_communities <- consensus(membership_matrix, gamma_lim = gamma_lim)
+
+  results <- analyse_communities(g, cons_communities, verbose = TRUE)
+  summary_n_trials_cons <- rbind(summary_n_trials_cons, results )
+  
+}
+summary_n_trials_cons$nc_norm <- summary_n_trials_cons$nc / nc_builtin
+summary_n_trials_cons %>% write.csv(paste0('./tmp/summary_',method,'.csv'))
+ 
+```
+
+
+
+
+```{r}
+p1 <- summary_n_trials_cons %>% 
+  group_by(method, mu) %>% 
+  summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
+  
+  ggplot(aes(x = mu, y = mean_nmi)) +
+  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
+  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nmi-sd_nmi, ymax = mean_nmi + sd_nmi, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 0.5)+
+  geom_vline(xintercept = 0.5)+
+  labs(title = "Normalized Mutual Information ", y = "NMI", x = "empirical mixing parameter") +
+  theme_light()   
+p1
+```
+```{r}
+
+
+p2 <- summary_n_trials_cons %>% 
+  group_by(method, mu) %>%  
+  summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
+  
+  ggplot(aes(x = mu, y = mean_nc)) +
+  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
+  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 1)+
+  geom_vline(xintercept = 0.5)+
+  labs(title = "number of communities ", y = "normalized number of communities C/C0", x = "empirical mixing parameter") +
+  theme_light() 
+
+p2
+
+```
+
+```{r}
+png(filename="../figures/fig_cons.png",'figurecons.png',width = 30, height = 15, res = 300, units = "cm")
+grid.arrange(p1, p2, ncol = 2)
+dev.off()
+```
+
+```{r}
+grid.arrange(p1, p2, ncol = 2)
+
+```
+
+
+
+
+ 
+
+
+
+## 2 highlight (LP, gmin = 0.9)
+```{r}
+method <- paste0(method_base,'_high')
+gamma_lim = 0.9
+summary_n_trials_cons <- data.frame()
+nc_builtin <- c()
+for (mu in mui) {
+  print('-')
+  g <- load_benchmark_network(mui = mu,
+                              path = path,
+                              verbose = TRUE)
+  
+  nc_builtin <- c(nc_builtin,max(V(g)$community))
+  
+  membership_matrix <- find_communities_N_times (g,
+    n_trials = 100,
+    methods = substr(method,1,2))
+   
+  cons_communities <- consensus(membership_matrix, gamma_lim = gamma_lim)
+
+  results <- analyse_communities(g, cons_communities, verbose = TRUE)
+  summary_n_trials_cons <- rbind(summary_n_trials_cons, results )
+  
+}
+summary_n_trials_cons$nc_norm <- summary_n_trials_cons$nc / nc_builtin
+summary_n_trials_cons %>% write.csv(paste0('./tmp/summary_',method,'.csv'))
+```
+
+
+
+
+```{r}
+p3 <- summary_n_trials_cons %>% 
+  group_by(method, mu) %>% 
+  summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
+  
+  ggplot(aes(x = mu, y = mean_nmi)) +
+  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
+  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nmi-sd_nmi, ymax = mean_nmi + sd_nmi, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 0.5)+
+  geom_vline(xintercept = 0.5)+
+  labs(title = "Normalized Mutual Information ", y = "NMI", x = "empirical mixing parameter") +
+  theme_light()   + ylim(0,1)
+p3
+```
+
+```{r}
+
+
+p4 <- summary_n_trials_cons %>% 
+  group_by(method, mu) %>%  
+  summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
+  
+  ggplot(aes(x = mu, y = mean_nc)) +
+  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
+  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 1)+
+  geom_vline(xintercept = 0.5)+
+  labs(title = "number of communities ", y = "normalized number of communities C/C0", x = "empirical mixing parameter") +
+  theme_light() 
+
+p4
+
+```
+
+ ```{r}
+png(filename="../figures/fig_cons.png",'figurecons.png',width = 30, height = 15, res = 300, units = "cm")
+grid.arrange(p1, p2, ncol = 2)
+dev.off()
+```
+
+ ```{r}
+grid.arrange(p1, p2, ncol = 2)
+
+```
+
+
+
+
+
+
+
+
+
+## 3 group (LP, gmin = 0.9 and group)
+```{r}
+method = paste0(method_base, '_g')
+gamma_lim = 0.9
+summary_n_trials_cons <- data.frame()
+nc_builtin <- c()
+for (mu in mui) {
+  print('-')
+  g <- load_benchmark_network(mui = mu,
+                              path = path,
+                              verbose = TRUE)
+  
+  nc_builtin <- c(nc_builtin,max(V(g)$community))
+  
+  membership_matrix <- find_communities_N_times (g,
+    n_trials = 100,
+    methods = substr(method,1,2))
+   
+  cons_communities <- consensus(membership_matrix, gamma_lim = gamma_lim)
+  cons_communities$membership[ cons_communities$gamma <=gamma_lim ] <- 0
+
+  results <- analyse_communities(g, cons_communities, verbose = TRUE)
+  summary_n_trials_cons <- rbind(summary_n_trials_cons, results )
+  
+}
+summary_n_trials_cons$nc_norm <- summary_n_trials_cons$nc / nc_builtin
+summary_n_trials_cons %>% write.csv(paste0('./tmp/summary_',method,'.csv'))
+```
+
+
+
+
+```{r}
+p5 <- summary_n_trials_cons %>% 
+  group_by(method, mu) %>% 
+  summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
+  
+  ggplot(aes(x = mu, y = mean_nmi)) +
+  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
+  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nmi-sd_nmi, ymax = mean_nmi + sd_nmi, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 0.5)+
+  geom_vline(xintercept = 0.5)+
+  labs(title = "Normalized Mutual Information ", y = "NMI", x = "empirical mixing parameter") +
+  theme_light()   
+p5
+```
+
+```{r}
+
+
+p6 <- summary_n_trials_cons %>% 
+  group_by(method, mu) %>%  
+  summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
+  
+  ggplot(aes(x = mu, y = mean_nc)) +
+  #geom_rect( aes(NULL, NULL, xmin = 0 , xmax = .4, ymin = 0, ymax = 1 ), fill = "green", alpha = 0.005)+
+  #geom_rect( aes(NULL, NULL, xmin = .50, xmax = .80, ymin = 0, ymax = 1 ), fill = "yellow", alpha = 0.005)+
+  geom_line(aes(color = method)) +
+  geom_point(aes(color = method)) +
+  geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = method), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 1)+
+  geom_vline(xintercept = 0.5)+
+  labs(title = "number of communities ", y = "normalized number of communities C/C0", x = "empirical mixing parameter") +
+  theme_light() 
+
+p6
+
+```
+ 
+
+# plots for paper
+```{r}
+s1<- read_csv(paste0('./tmp/summary_ML_inc.csv'))
+s2<- read_csv(paste0('./tmp/summary_ML_high.csv'))
+s3<- read_csv(paste0('./tmp/summary_ML_g.csv'))
+
+summary_n_trials_cons <- rbind(s1,s2,s3)
+summary_n_trials_cons <- summary_n_trials_cons %>% 
+  mutate(across("method", str_replace, "ML_inc_cons", "incorporate"))%>%
+  mutate(across("method", str_replace, "ML_high_cons", "highlight"))%>%
+  mutate(across("method", str_replace, "ML_g_cons", "group"))%>% 
+    rename(outliers = method)
+
+p1 <- summary_n_trials_cons  %>%
+  group_by(outliers, mu) %>% 
+  summarise(mean_nmi = mean(nmi), sd_nmi = sd(nmi) ) %>%
+  
+  ggplot(aes(x = mu, y = mean_nmi)) +
+  geom_line(aes(color = outliers)) +
+  geom_point(aes(color = outliers)) +
+  geom_linerange(aes(ymin =mean_nmi-sd_nmi, ymax = mean_nmi + sd_nmi, color = outliers), linewidth = 2, alpha = 0.5)+
+  #geom_hline(yintercept = 0.5)+
+  geom_vline(xintercept = 0.5)+
+  ylim(0,1)+  guides(fill="none") +
+  labs(title = "", y = "NMI", x = "mixing parameter") +
+  theme_light()  +theme (legend.position="none")
+
+p2 <- summary_n_trials_cons %>%  
+  group_by(outliers, mu) %>%  
+  summarise(mean_nc = mean(nc_norm), sd_nc = sd(nc_norm) ) %>%
+    ggplot(aes(x = mu, y = mean_nc)) +
+  geom_line(aes(color = outliers)) +
+  geom_point(aes(color = outliers)) +
+  geom_linerange(aes(ymin =mean_nc-sd_nc, ymax = mean_nc + sd_nc, color = outliers), linewidth = 2, alpha = 0.5)+
+  geom_hline(yintercept = 1)+
+  geom_vline(xintercept = 0.5)+
+ 
+  labs(title = "", y = "C/C0", x = "mixing parameter") +
+  theme_light() 
+
+
+  
+
+```
+
+```{r}
+#
+ grid.arrange(p1 , 
+              p2 , 
+              ncol = 2, widths=c(1,1.4) , heights= c(1,1), top = "multilevel")  
+```
+
+
+```{r}
+p1 + theme(legend.position="none") + coord_fixed(ratio = .6)
+```
+
+```
+
+
+  
+# LFR coreness gamma
+
+```{r}
+g<-read_graph('./benchmark/LFR/LFR_benchmark_30.gml', format = 'gml')
+#V(g)$id <- 1:vcount(g)
+E(g)$weight <- 1
+
+
+
+V(g)$community <- fastgreedy.community(g)$membership
+membership_matrix <- find_communities_N_times (g,
+                          n_trials=1000,
+                          methods=c(method), 
+                          filename_summary = '',
+                          filename_membership = '')
+
+cons_communities <- consensus(membership_matrix, gamma_lim = 0.2)
+V(g)$community<- as.factor(cons_communities$membership)
+V(g)$gamma <-  cons_communities$gamma
+
+results <- analyse_communities(g, cons_communities, verbose = TRUE)
+
+cols1 <- c("yellow", "orange", "lightblue", "green", "white")[as.factor(membership(cons_communities))]
+
+plot(cons_communities,g, layout = layout.fruchterman.reingold, 
+     vertex.label = NA ,  
+     col =cols1,
+     mark.border =adjustcolor("black", .8), 
+     mark.col    =adjustcolor("lightgray", .2))
+
+ 
+plot(g, vertex.color = (cons_communities$gamma), 
+     vertex.label = if_else(cons_communities$gamma<1,as.character(cons_communities$gamma),''))
+plot(g, 
+     vertex.size = 30,
+     vertex.color = cons_communities$membership, 
+     vertex.label = round(cons_communities$gamma,1))
+
+table(cons_communities$membership)
+
+hist(cons_communities$gamma)
+table(cons_communities$gamma)
+
+E(g)$w <-1
+gc <- make_community_network(g)
+giant_component <- which.max(components(gc)$csize) 
+gc <- induced.subgraph(gc, components(gc)$membership == giant_component)
+
+gc<-igraph::simplify(gc)
+cols4 <- c("yellow", "orange", "lightblue", "green", "white")[as.factor(V(gc)$name)]
+plot(gc, layout = layout.graphopt,
+    vertex.size = V(gc)$size*.2, 
+    vertex.shape = "square", 
+    vertex.color = cols4,
+    vertex.label = NA,#V(gc)$size, 
+    vertex.label.dist=0.0,
+    vertex.label.color='black',
+    edge.color = if_else(which_loop(gc), "lightgray", "black"),
+    edge.width = E(gc)$weight
+    )
+
+V(g)[V(g)$gamma<0.4]
+V(g)$name<- V(g)$id
+
+selected_node_name <- 19
+gg<-induced.subgraph(g, find_neighbours(g, node <- selected_node_name, order = 2))
+plot(gg, vertex.color = V(gg)$gamma)
+
+```
+
+```{r}
+#make a gamma creness graph
+df <- data.frame(name = V(g)$name, gamma = V(g)$gamma, coreness = coreness(g))
+sp <- df[ df$gamma <= 0.6 , ]$name
+sp
+
+df %>% ggplot( aes(x=coreness, y = gamma) ) +
+  geom_point(size = 4, alpha = 0.1, color = if_else(V(g)$name %in% sp, "red", "blue"))
+
+```
+```{r}
+for (sn in sp[1:10]){
+  selected_node_name <- sn
+  gg<-induced.subgraph(g, find_neighbours(g, node <- selected_node_name, order = 2))
+  col = as.factor(V(gg)$community)
+  col[ V(gg)$name == sn ] <- "white" 
+  plot(gg, vertex.color = col, vertex.label <- V(gg)$community)
+}
+
+```
+

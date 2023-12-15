@@ -1,0 +1,122 @@
+---
+title: "variablity on R of Cliques"
+author: "Fabio Morea"
+date: "2023-065-23"
+ 
+output:
+  pdf_document: default
+  html_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+```
+
+```{r load libraries, include=FALSE}
+library(igraph)
+library(tidyverse)
+library(gridExtra)
+library(aricode) # NMI 
+source('./functions_graph_analysis.R')
+```
+ 
+
+```{r}
+#parameters
+method = 'LV'
+gamma_lim = 0.3
+t = 2
+
+#load and prepare data
+g<- read_graph('./LMnetwork/LMN.csv', format = 'graphml')
+g<-as.undirected( g , mode = 'each')
+g<-igraph::simplify(g, remove.multiple = TRUE, edge.attr.comb = igraph_opt("sum"))
+#g <- delete.edges (g, which (E(g)$weight < .1))
+V(g)$core <- coreness(g)
+
+#community detection repeated t times
+M <- find_communities_repeated(g,
+                               n_trials=t, 
+                               method = method,
+                               shuffle = TRUE,
+                               resolution = c( 1.0),#for Louvain
+                               verbose = FALSE)
+
+# assess co-occurrence of vertices in the same community
+NCO <- normalized_co_occurrence(M)
+
+# make consensum communities matrix
+CCnk <- consensus_communities(NCO)
+
+# summarize labels and outliers in 2 vectors
+lab <- max.col(CCnk, 'first')
+CCn2 <- data.frame(labels = lab, u = CCnk[cbind(1:nrow(CCnk), lab)])
+table(table(CCn2$labels))
+
+#manage outliers
+
+### TODO: if community size = 1  they must go to community 999
+csz <- data.frame( table(CCn2$labels)) %>% rename(labels=Var1, cs=Freq)
+CCn2 <- CCn2 %>% merge(csz, by = 'labels')
+#CCn2$labels[CCn2$cs <= 2] <- 999
+### 
+### 
+
+### if U <= 0.5 they must go to community 0
+### if gamma0 is below 0.5 it can make a difference
+CCn2$labels[CCn2$u <= 0.5] <- 999
+
+# add data to g and plot
+V(g)$cons_comms<-CCn2$labels
+V(g)$gamma<-CCn2$u
+    
+cons_communities <- make_clusters(g, array(as.numeric(V(g)$cons_comms)))
+cons_communities$gamma<-V(g)$gamma
+
+vertex_colors <- rep( "lightgreen", vcount(g))
+vertex_colors <- if_else (V(g)$gamma < 0.8,  "yellow",vertex_colors)
+vertex_colors <- if_else (V(g)$gamma < 0.45,  "orange",vertex_colors)
+ 
+    
+plot(cons_communities,g,  
+     vertex.label=NA, 
+     vertex.size = 10, 
+     edge.width = E(g)$weight)
+
+plot(g,  layout = layout_with_kk,
+     vertex.color =vertex_colors,
+     vertex.label=NA, 
+     vertex.size = 10, 
+     edge.width = E(g)$weight)
+hist(V(g)$gamma)
+plot(coreness(g) , V(g)$gamma)
+
+
+#df<-as_long_data_frame(g)
+#df %>% write_csv('results_uncertainty.csv')
+ 
+df_n <- data.frame(n=V(g)$name, c = V(g)$cons_comms, u = V(g)$gamma, k = V(g)$core) %>%
+  filter((u<0.9))%>% filter(k>5)
+
+df_n
+nc <- nrow(table(V(g)$cons_comms))
+print(paste("Number of communities ", nc))
+
+ 
+```
+
+
+testing the procedure:
+  when applied to a ranom graph it should return either
+a single community with gamma = 1
+or
+a number of communities with gamma < 0.5
+
+
+```{r}
+g<-read_graph('./benchmark/random/random_100_0.4.gml', format = 'gml')
+V(g)$name<-V(g)$id
+E(g)$weight<-1.0
+
+```
+
