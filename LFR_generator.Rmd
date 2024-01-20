@@ -78,13 +78,12 @@ print(testG)
    
 ```{r}
    
-for (mui in seq(5, 60, 5)) {
-    for (i in 1:2)  {
+for (mui in seq(5, 80, 5)) {
         g <- make_benchmark_network(
     n = 1000,
-            average_degree = 20,
+            average_degree = 10,
             max_degree = 50,
-            min_community = 20,
+            min_community = 5,
             max_community = 50,
             mu = mui/100,
             tau1 = 2.0,
@@ -99,12 +98,13 @@ for (mui in seq(5, 60, 5)) {
         emu = CCD::empirical_mu(g)
  
         
-        print(paste("Mu", mui/100, round(emu,2), "i: ", i, "nc: ", max(comm$membership)))
+        print(paste("Mu", mui/100, round(emu,4), "i: ", i, "nc: ", max(comm$membership)))
         print(ecount(g))
         plot(table(comm$membership))
         gc <- CCD::make_community_network(g)
         plot(gc,vertex.label = V(gc)$name,edge.width = E(gc)$weight / 10)
-    }
+        igraph::write.graph(g,paste0('./benchmark/LFR/LFR_benchmark_', mui,'.gml'), format = 'gml')
+    
 }
 
  

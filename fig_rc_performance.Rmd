@@ -1,0 +1,127 @@
+---
+title: "CCD on karate-club network"
+author: "Fabio Morea"
+date: "2023-11-23"
+ 
+output:
+  pdf_document: default
+---
+
+########################## 
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+#library(devtools)  
+#devtools::install_github("fabio-morea/CCD", force = TRUE)
+library(CCD)
+library(igraph)
+library(tidyverse)
+ 
+library(gridExtra)
+
+library(ggpubr)
+library(aricode) # NMI 
+library(plotly)  
+library(scales)
+library(RColorBrewer)
+```
+
+
+
+# test on a Ring of Cliques 
+```{r}
+g <-CCD::make_ring_of_cliques(num_cliques = 3, clique_size = 8, add_bridges = T, add_center = T)
+plot(g)
+#add 3 single node components
+#rc <- rc %>% add_vertices(3)  
+#V(rc)$name <- seq(1:vcount(rc))
+#plot(rc)
+```
+
+```{r}
+
+CC <-CCD::consensus_community_detection(
+        g,
+        p = 0.8,
+        t = 501,
+        group_outliers = T,
+        method = 'WT',
+        resolution = c(0.7),
+        shuffle = T
+    )
+        
+
+
+V(g)$community <- CC$membership[ order(match(CC$name, V(g)$name)) ]
+V(g)$gamma <- round( CC$gamma,6)
+
+palette <- brewer.pal(length(unique(V(g)$gamma)), "Greens")
+vertexcolor = palette[as.numeric(as.factor(cut(V(g)$gamma, breaks = 3)))]
+
+plot( g, vertex.color = vertexcolor,   vertex.label = NA,
+        main = "Ring of Cliques - gamma")
+ 
+ 
+```
+`
+```{r}
+results = data.frame()
+
+for (s in c(4, 6, 8)){
+  for (i in seq(5,100,5)){
+    #print(i)
+    g <- CCD::make_ring_of_cliques(num_cliques = i, 
+                                   clique_size = s, 
+                                   add_bridges = T, 
+                                   add_center = T)
+    
+    C_single <- cluster_louvain(g)
+    nc_LV = max(C_single$membership)
+    
+    CC <-CCD::consensus_community_detection(
+      g,
+      p = 0.8,
+      t = 101,
+      group_outliers = T,
+      method = 'LV',
+      shuffle = T
+    )
+    
+    nc_CCD <- max(CC$membership) 
+    results <- rbind(results, data.frame(s, i, nc_LV, nc_CCD))
+    
+    text <- (paste("clique size and number of cliques:", s, i , "LV: ", nc_LV, "CCD",nc_CCD))
+    print(text)
+    
+    #plot( CC, g,  vertex.label = NA, main = text)
+    
+    
+  }
+}
+
+
+```
+```{r}
+results %>% write_csv('RC_accuracy_test.csv')
+```
+
+```{r}
+#print(results)
+
+line_plot <- ggplot(results , aes(x = i)) +
+  geom_line(aes(y = i), color = "black", linewidth = .5) +
+  geom_line(aes(y = nc_LV), color = "blue", linewidth = 2) +
+  geom_point(aes(y = nc_LV), color = "blue", size = 2) +
+  geom_line(aes(y = nc_CCD), color = "green", linewidth = 1) +
+  geom_point(aes(y = nc_CCD), color = "green", size = 2) +
+  #labs(title = "Number of communities identified by LV and CCD(LV)",
+   #    x = "cliques in the model",
+    #   y = "communities") +
+  facet_wrap(~s)+
+  theme_minimal()
+
+line_plot
+
+```
+

@@ -8,6 +8,8 @@ output:
   html_document: default
 ---
 
+# knitr::purl('fig_consensus_LFR.Rmd') #to create script
+
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(include = TRUE)
 ```
@@ -18,11 +20,79 @@ library(tidyverse)
 library(gridExtra)
 library(ggpubr)
 library(aricode) # NMI 
+
+#install.packages("remotes")
+#remotes::install_github("schochastics/netUtils")
+library(netUtils)
+library(VGAM)
+
+library(devtools)  
+#devtools::install_github("fabio-morea/CCD", force = TRUE)
 library(CCD)
-#source('./functions_graph_analysis.R')
+print("packages loaded")
+
 ```
 
+
+
+
 ```{r}
+make_benchmark_network <- function(n,
+                                   average_degree,
+                                   max_degree,
+                                   min_community,
+                                   max_community,
+                                   mu,
+                                   tau1,
+                                   tau2, 
+                                   max_trials=100) {
+    err_check <- TRUE
+    gLFR <- NULL
+    trial <- 0
+    while (err_check & trial < max_trials) {
+        trial <- trial + 1
+        tryCatch(
+            gLFR <- sample_lfr(
+                n = n,
+                average_degree = average_degree,
+                max_degree = max_degree,
+                min_community = min_community,
+                max_community = max_community,
+                mu = mu ,
+                tau1 = tau1,
+                tau2 = tau2
+            ),error = function(e)NULL)
+        if (is.null(gLFR)) {
+            print(paste("unable to generate netowork - trial", trial))
+        } else {
+            err_check <- FALSE
+        }
+    }
+    if (trial > max_trials) {
+        print(paste("unsuccessfully tried",max_trials,"times. Please provide a different set of params"))
+        return(-1)
+    } else {
+        return (gLFR)
+    }
+    
+}
+
+testG <- make_benchmark_network(
+            n = 1000,
+            average_degree = 5,
+            max_degree = 20,
+            min_community = 5,
+            max_community = 50,
+            mu = 0.2,
+            tau1 = 3.0,
+            tau2 = 2.0
+            
+        )
+print(testG)
+```
+
+
+  ```{r}
 
 load_benchmark_network <- function(mui, path = path, verbose = FALSE) {
     filename = paste0(path, mui, ".gml")
@@ -34,7 +104,7 @@ load_benchmark_network <- function(mui, path = path, verbose = FALSE) {
     V(g)$comm_built_in <-  V(g)$community
     V(g)$core <- coreness(g)
     V(g)$str <- strength(g)
-    V(g)$name <- paste0("V" , V(g)$label)
+    V(g)$name <- paste0("V" , V(g)$name)
     E(g)$w <- 1.0
     E(g)$ww <- 1.0
     E(g)$weight <- 1.0
@@ -49,7 +119,7 @@ load_benchmark_network <- function(mui, path = path, verbose = FALSE) {
     } 
     return(g)
 }
-```
+  ```
 
 
 ```{r}
@@ -58,7 +128,7 @@ recursive_consensus <- function(M, threshold , met, t) {
   j = 1
   
   while (j <= 10) {
-    co_occ_matrix <-  normalized_co_occurrence((M))
+    co_occ_matrix <-  CCD::normalized_co_occurrence((M))
     
     # all entries of co occurrenc ematrix below a threshold are set to zero
     co_occ_matrix[co_occ_matrix < threshold] <- 0
@@ -73,7 +143,7 @@ recursive_consensus <- function(M, threshold , met, t) {
     #print(paste("iteration", j))
     #print(table(E(g2)$weight))
     
-    cons_communities_2 <-find_communities(g2, method = met, verbose = FALSE)
+    cons_communities_2 <- CCD::find_communities(g2, method = met, verbose = FALSE)
     
     
     if (length(table(E(g2)$weight)) == 1) {
@@ -86,7 +156,7 @@ recursive_consensus <- function(M, threshold , met, t) {
       #print(g2)
     } 
     
-    M  <- find_communities_repeated (g2, n_trials = t, method = met)
+    M  <- CCD::find_communities_repeated (g2, n_trials = t, method = met)
     
     j <- j + 1
     
@@ -102,82 +172,149 @@ recursive_consensus <- function(M, threshold , met, t) {
 
 
 ```{r}
+
 path <- "./benchmark/LFR/LFR_benchmark_"
-mui = seq(5,60,10)
-n_trials = 10
+mui = seq(5, 60, 5)
+n_repetitions<-20
+n_trials = 100
 threshold = 0.60
 #resol = c(0.99)
-methods = c('LV','LD','LP','IM','WT')
-
+methods = c('LV', 'LD', 'LP', 'IM', 'WT')
+method_base = 'LV'
 summary_n_trials  <- data.frame()
 nc_builtin <- c()
-j<-0
-```
 
+      uncertain_nodes <- 0.0
+      uncertainty_q10 <- 0.0
+      uncertainty_q50 <- 0.0
+      uncertainty_q90 <- 0.0
+ 
+M <- NA
+mu = 10
 
-#  
-
-```{r}
 
 
 for (mu in mui) {
   #print(paste("MU = ", mu))
-  for (method_base in methods) {
-    print(paste('mu: ', mu, '**** method : ', method_base))
-    method <- paste0(method_base, '_ST')
-    g <- load_benchmark_network(mui = mu,
-                                path = path,
-                                verbose = FALSE)
-    
-    V(g)$community <- V(g)$comm_built_in
+  for (j in 1:n_repetitions) {
+    print(paste("REPETITION ", j))
+    #create a network 
+    #      #g <- load_benchmark_network(mui = mu,path = path,verbose = FALSE)
+
+    g <- make_benchmark_network(
+      n = 1000,
+      average_degree = 10,
+      max_degree = 40,
+      min_community = 5,
+      max_community = 50,
+      mu = mu / 100,
+      tau1 = 2.0,
+      tau2 = 1.5
+    )
+    V(g)$name <- paste0("V", 1:vcount(g))
+    E(g)$weight <- 1.0
+    E(g)$w <- 1.0
+    V(g)$comm_built_in <- V(g)$membership
+    V(g)$community <- V(g)$membership
     mu_built_in = round(empirical_mu(g), 3)
     nc_builtin <- max(V(g)$comm_built_in)
     
-    for (i in 1:n_trials) {
-      gs <- igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE))
-      comms <- find_communities(gs, method = method) 
-      # order() function to get the communities found on gs in the order they appear in g 
-      V(g)$community <- comms$membership[ order(match(comms$name, V(g)$name)) ]
+    for (method_base in methods) {
+      print(paste('mu: ', mu, '**** method : ', method_base))
+      method <- paste0(method_base, '_ST')
+      
+      M <- data.frame(name = V(g)$name)
+      for (i in 1:n_trials) {
+        gs <-
+          igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE))
+        comms <- CCD::find_communities(gs, method = method)
+        # order() function to get the communities found on gs in the order they appear in g
+        V(g)$community <-
+          comms$membership[order(match(comms$name, V(g)$name))]
+        
+        nmi <-
+          aricode::NMI(as.factor(V(g)$community),
+                       as.factor(V(g)$comm_built_in))
+        mu_emp <- round(empirical_mu(g), 3)
+        nc_norm <-
+          round(sum(table((
+            V(g)$community
+          )) > 1) / nc_builtin, 4)
+        met <- method
+      results_iteration <-data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm, uncertain_nodes, uncertainty_q10, uncertainty_q50, uncertainty_q90)
+        summary_n_trials <-
+          rbind(summary_n_trials , results_iteration)
+        
+        comm_labeled <-
+          data.frame(name = V(gs)$name,
+                     memb = comms$membership)
+        M <- inner_join(M, comm_labeled, by = "name")
+        colnames(M) <- c("name", seq(1:i))
+        
+      }
+      
+      method <- paste0(method_base, '_consRec')
+      commsRC <- recursive_consensus (M,
+                                      threshold = threshold ,
+                                      met = method_base,
+                                      t = n_trials)
+      
+      V(g)$community <-
+        commsRC$membership[order(match(commsRC$names, V(g)$name))]
+      nmi <-
+        aricode::NMI(as.factor(V(g)$community), as.factor(V(g)$comm_built_in))
+      mu_emp <- round(empirical_mu(g), 3)
+      nc_norm <-
+        round(sum(table((
+          V(g)$community
+        )) > 1) / nc_builtin, 4)
+      met <- method
+      results_iteration <-data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm, uncertain_nodes, uncertainty_q10, uncertainty_q50, uncertainty_q90)
+      summary_n_trials <-
+        rbind(summary_n_trials , results_iteration)
+      
+      
+      
+      nco <- CCD::normalized_co_occurrence(M)
+      method <- paste0(method_base, '_CCD_p06')
+      commsCCD <- CCD::consensus_communities(nco, p = 0.6)
+      V(g)$community <- commsCCD$cons_comm_label[order(match(commsCCD$name, V(g)$name))]
+      uncertain_nodes <- sum(commsCCD$gamma>0)/vcount(g)
+      uncertainty_q10 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.10),6)
+      uncertainty_q50 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.50),6)
+      uncertainty_q90 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.90),6)
+      nmi <- aricode::NMI(as.factor(V(g)$community), as.factor(V(g)$comm_built_in))
+      mu_emp <- round(empirical_mu(g), 3)
+      nc_norm <- round(sum(table((V(g)$community)) > 1) / nc_builtin, 4)
+      met <- method
+      results_iteration <-data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm, uncertain_nodes, uncertainty_q10, uncertainty_q50, uncertainty_q90)
+      summary_n_trials <-rbind(summary_n_trials , results_iteration)
+      
+      
+      method <- paste0(method_base, '_CCD_p09g')
+      commsCCD <- CCD::consensus_communities(nco, p = 0.9)
+      commsCCD[commsCCD$size == 1] <- 0
+      V(g)$community <-commsCCD$cons_comm_label[order(match(commsCCD$name, V(g)$name))]
+      uncertain_nodes <- sum(commsCCD$gamma>0)/vcount(g)
+      uncertainty_q10 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.10),6)
+      uncertainty_q50 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.50),6)
+      uncertainty_q90 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.90),6)
       
       nmi <- aricode::NMI(as.factor(V(g)$community), as.factor(V(g)$comm_built_in))
       mu_emp <- round(empirical_mu(g), 3)
-      nc_norm <-round(sum(table((V(g)$community)) > 1) / nc_builtin, 4)
+      nc_norm <- round(sum(table((V(g)$community)) > 1) / nc_builtin, 4)
       met <- method
-      results_iteration <- data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm)
-      summary_n_trials <- rbind(summary_n_trials ,results_iteration)
-      
+      results_iteration <-data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm, uncertain_nodes, uncertainty_q10, uncertainty_q50, uncertainty_q90)
+      summary_n_trials <-rbind(summary_n_trials , results_iteration)
+      uncertain_nodes <- 0.0
+      uncertainty_q10 <- 0.0
+      uncertainty_q50 <- 0.0
+      uncertainty_q10 <- 0.0
     }
-    
-    method <- paste0(method_base, '_consRec')
-    commsRC <- recursive_consensus (M, 
-                     threshold = threshold ,
-                     met=method_base, 
-                     t=n_trials) 
-    
-    V(g)$community <- commsRC$membership[ order(match(commsRC$names, V(g)$name)) ]
-    nmi <- aricode::NMI(as.factor(V(g)$community), as.factor(V(g)$comm_built_in))
-    mu_emp <- round(empirical_mu(g), 3)
-    nc_norm <-round( sum(table((V(g)$community)) > 1) / nc_builtin, 4)
-    met <- method
-    results_iteration <- data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm)
-    summary_n_trials <- rbind(summary_n_trials ,results_iteration)
-    
-    
-    method <- paste0(method_base, '_CCD')
-    nco <- normalized_co_occurrence(M)
-    commsCCD <- CCD::consensus_communities(nco,p=threshold)   
-    V(g)$community <- commsCCD$cons_comm_label[ order(match(commsCCD$name, V(g)$name)) ]
-    nmi <- aricode::NMI(as.factor(V(g)$community), as.factor(V(g)$comm_built_in))
-    mu_emp <- round(empirical_mu(g), 3)
-    nc_norm <-round( sum(table((V(g)$community)) > 1) / nc_builtin, 4)
-    met <- method
-    results_iteration <- data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm)
-    summary_n_trials <- rbind(summary_n_trials ,results_iteration)
-
   }
 }
 
-summary_n_trials  %>% write_csv('./results/results_cons_comm_detection.csv')
+#summary_n_trials  %>% write_csv('./results/results_cons_comm_detection.csv')
 
  
 ```
@@ -193,50 +330,59 @@ library(ggpubr)
 
 df <- read_csv('./results/results_cons_comm_detection.csv')
  df <- df %>% 
-  mutate(mu = mu/100)%>%
-  mutate(alg = substr(met, 1,2)) %>%
-  mutate(cons = substr(met, 4,10)) 
- 
+   mutate(mu_bi_int =  round(mu_built_in *2 ,1)/2)%>%
+   mutate(alg = substr(met, 1,2)) %>%
+  mutate(cons = substr(met, 4,15))
+#table(df$mu_bi_int)
+#table(df$mu)
+
+#df %>% ggplot()+geom_point(aes(x=mu, y=mu_emp))
+
 ```
 #plot
+
+
 
 ```{r}
 
 
-row_3_plots <- function(df1, clegend, title){
-shapes <- c(0,2,20,1,1,1,1)
-colorss <- c("blue","darkgreen","gray","black","black","black","black")  
-p1 <- ggplot(data = df1, aes(x = mu_built_in, y = mu_emp,  shape = cons, color = cons))+
-  geom_point(size=2)+
-  scale_shape_manual(title, values = shapes)+
-  scale_color_manual(title, values = colorss)+
-  xlim(0,0.71)+
-  geom_abline(slope = 1, intercept = 0, color = 'darkgreen', size = .5, linetype = "dashed")+
-  geom_segment(x =0, xend = 0.5, y = 0.5, yend = 0.5, color = "red", linetype = "dashed")+
-  geom_segment(x =0.5, xend = 0.5, y = 0, yend = 0.5, color = "red", linetype = "dashed")+
-   theme_light() + theme(aspect.ratio = .4)
+row_2_plots <- function(df1, clegend, title){
+shapes <- c(6,2,0,21)
+colorss <- c("blue","darkgreen","red", "black")  
 
-p2 <- ggplot(data = df1, aes(x = mu_built_in, y = nmi,  shape = cons, color = cons))+
-  geom_point(size=2)+
+
+p1 <- ggplot(data = df1, aes(x = mu_built_in , y = nmi,  shape = cons, color = cons))+
+  geom_point(size=1)+
+  geom_smooth(se=FALSE)+
   scale_shape_manual(title, values = shapes)+
   scale_color_manual(title, values = colorss)+
-  xlim(0,0.51)+
+  #xlim(0,0.51)+
   geom_vline(xintercept = 0.5, color = 'red', linetype = "dashed")+
   geom_hline(yintercept = 1, color = 'darkgreen', size = .5, linetype = "dashed")+
   theme_light() + theme(legend.position = 'none') + theme(aspect.ratio = .4)
 
-p3 <- ggplot(data = df1, aes(x = mu_built_in, y = nc_norm,  shape = cons, color = cons))+
-  geom_point(size=2)+
+p2 <- ggplot(data = df1, aes(x = mu_built_in , y = nc_norm,  shape = cons, color = cons))+
+  geom_point(size=1)+
+  geom_smooth()+
   scale_shape_manual(title, values = shapes)+
   scale_color_manual(title, values = colorss)+
-  xlim(0,0.51)+
+  #xlim(0,0.51)+
   geom_vline(xintercept = 0.5, color = 'red', linetype = "dashed")+
   geom_hline(yintercept = 1, color = 'darkgreen', size = 0.5, linetype = "dashed")+
   theme_light()  + theme(aspect.ratio = .4)
 
+p3 <- ggplot(data = df1, aes(x = mu_built_in, y = mu_emp ,  shape = cons, color = cons))+
+  geom_smooth()+
+  #scale_shape_manual(title, values = shapes)+
+  #scale_color_manual(title, values = colorss)+
+  #xlim(0,0.71)+
+  #geom_abline(slope = 1, intercept = 0, color = 'darkgreen', size = .5, linetype = "dashed")+
+  #geom_segment(x =0, xend = 0.5, y = 0.5, yend = 0.5, color = "red", linetype = "dashed")+
+  #geom_segment(x =0.5, xend = 0.5, y = 0, yend = 0.5, color = "red", linetype = "dashed")+
+   theme_light() + theme(aspect.ratio = .4)
 
-p <- ggarrange(p1,p2,p3, ncol = 3,common.legend = TRUE, legend="top")+ theme(aspect.ratio =.3)
-#p <- ggarrange(p2,p3, ncol = 2,common.legend = TRUE, legend="top")+ theme(aspect.ratio = .3)
+p <- ggarrange(p1,p2, ncol = 2,common.legend = TRUE, legend="top")+ theme(aspect.ratio =.3)
+p <- ggarrange(p1,p2,p3, ncol = 3,common.legend = TRUE, legend="top")+ theme(aspect.ratio = .3)
  
 
 #p <- annotate_figure(p, top = text_grob(title, color = "black",   size = 14))
@@ -249,17 +395,59 @@ return(p)
 
 
 ```{r}
-row_3_plots(df %>% filter(alg %in% c('LV')), clegend = T,  title = "algorithm: LV")
-row_3_plots(df %>% filter(alg %in% c('LD')), clegend = F , title = "algorithm: LD")
-row_3_plots(df %>% filter(alg %in% c('LP')), clegend = F , title = "algorithm: LP")
-row_3_plots(df %>% filter(alg %in% c('IM')), clegend = F , title = "algorithm: IM")
-row_3_plots(df %>% filter(alg %in% c('WT')), clegend = F , title = "algorithm: WT")
+row_2_plots(df %>% filter(alg %in% c('LV')), clegend = T,  title = "algorithm: LV")
+row_2_plots(df %>% filter(alg %in% c('LD')), clegend = F , title = "algorithm: LD")
+row_2_plots(df %>% filter(alg %in% c('LP')), clegend = F , title = "algorithm: LP")
+row_2_plots(df %>% filter(alg %in% c('IM')), clegend = F , title = "algorithm: IM")
+row_2_plots(df %>% filter(alg %in% c('WT')), clegend = F , title = "algorithm: WT")
 ```
  
 
 ```{r}
-df1<-df %>% filter(alg %in% c('LV', 'LD','LP')) %>%
-  filter(cons != 'cons0.2')
+library(tidyverse)
+df1<-df %>% select(mu,mu_bi_int, alg, cons,nmi, uncertain_nodes) %>%group_by(mu_bi_int, alg, cons)%>%
+    summarize(
+    mu_emp_mean = mean(mu_emp),
+     mu_emp_lower_quantile = quantile(mu_emp, 0.10),
+     mu_emp_upper_quantile = quantile(mu_emp, 0.90),
+    un = mean(uncertain_nodes),
+    mean_value = mean(nmi),
+    lower_quantile = quantile(nmi, 0.10),
+    upper_quantile = quantile(nmi, 0.90)
+  )
+
+df1 %>% ggplot(aes(x = mu_bi_int, y = mean_value, group = interaction(alg, cons), color = cons)) +
+  geom_point() +  geom_ribbon(
+    aes(ymin = lower_quantile, ymax = upper_quantile, fill = cons),
+    alpha = 0.2,
+    color = NA
+  )+
+    geom_errorbar(
+    aes(ymin = lower_quantile, ymax = upper_quantile),
+    width = 0.0
+  ) +
+facet_wrap(vars(alg), ncol = 3,  scales = "free_y")+  theme_minimal()
+
+
+
+df1 %>% ggplot(aes(x = mu, y = mean_value, group = interaction(alg, cons), color = alg)) +
+  geom_point(alpha = 0.5) + geom_line(alpha= 0.5)+
+  geom_errorbar(
+    aes(ymin = lower_quantile, ymax = upper_quantile),
+    width = 0.0
+  ) +
+facet_wrap(vars(cons), ncol = 3,  scales = "free_y")+  theme_minimal()
+
+df1 %>% ggplot(aes(x = mu, y = un, group = interaction(alg, cons), color = cons)) +
+  geom_point(alpha = 0.5) + geom_line(alpha= 0.5)+
+facet_wrap(vars(cons), ncol = 3,  scales = "free_y")+  theme_minimal()
+
+```
+
+```{r}
+
+
+df %>% ggplot()+  geom_boxplot(aes(y=nmi, group = cons, color = cons))+   facet_wrap(vars(alg), ncol = 3) 
 
 ggplot(data = df1, aes(group = cons))+
   geom_point(data = df1%>%filter(cons=='ST'),aes(x = mu_built_in, y = mu_emp), color = 'black', shape = 1, size = 2)+
@@ -283,7 +471,14 @@ ggplot(data = df1, aes(x = mu_built_in, y = nmi, color = cons, shape = cons))+
   geom_point( )+
   theme_light()+ facet_wrap(vars(alg), ncol = 3) 
 
-ggplot(data = df1, aes(x = mu_built_in, y = nc_norm, color = cons, shape = cons))+
+ggplot(data = df1, aes(x = mu_emp, y = uncertain_nodes, color = cons, shape = cons))+
+  geom_point()+
+  geom_vline(xintercept = 0.5, color = 'red')+
+
+  geom_hline(yintercept = 1)+
+  theme_light()+ facet_wrap(vars(alg), ncol = 3) + theme(legend.position="top")
+
+ggplot(data = df1, aes(x = mu_emp, y = uncertainty_q50, color = cons, shape = cons))+
   geom_point()+
   geom_vline(xintercept = 0.5, color = 'red')+
 
@@ -294,25 +489,19 @@ ggplot(data = df1, aes(x = mu_built_in, y = nc_norm, color = cons, shape = cons)
 
 ```{r}
 df %>% filter(alg %in% c('LP')) %>%
-  ggplot( aes(x = mu, y = nmi, color = cons))+
+  ggplot( aes(x = round(mu_emp,2), y = nmi, color = cons))+
   geom_point()+
-  geom_smooth(se = FALSE)+
-  theme_light()+ facet_wrap(vars(alg), ncol = 5)
+  geom_line()+
+  theme_light()+ facet_wrap(vars(cons), ncol = 4)
 ```
 ```{r}
 df %>% filter(alg %in% c('IM',   'WT')) %>%
-  ggplot( aes(x = mu, y = nmi, color = cons))+
+  ggplot( aes(x = mu_emp, y = nmi, color = cons))+
   geom_point()+
   geom_smooth(se = FALSE)+
   theme_light()+ facet_wrap(vars(alg), ncol = 5)
 ```
 
-```{r}
-ggplot(data = summary_n_trials_cons, aes(x = mu, y = nc_norm, color = met))+
-  geom_point()+
-  geom_line()+
-  theme_light()
-```
 
 
 

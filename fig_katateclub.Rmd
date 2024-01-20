@@ -153,12 +153,13 @@ plot(CC,
 
  
 ```{r}
-g <- gk
+g<-gk
+
 CC <-CCD::consensus_community_detection(
         g,
-        p = 0.6,
+        p = 0.80,
         t = 501,
-        group_outliers = TRUE,
+        group_outliers = FALSE,
         method = 'LV',
         resolution = c(0.7),
         shuffle = TRUE
@@ -184,6 +185,53 @@ plot_uncertainty(g, CC,roundgamma = 2)
 
 ```
 
+
+# test stability  as a function of t and *p*
+How many communities are there?
+Are 9 and 31 with Han or not?
+
+```{r}
+M <- NA
+reps <- 100
+df <- data.frame()
+g<-gk
+for (t in c(1, 11, 21, 51, 101 )) {
+  print(paste("Testing t = ", t))
+  for (j in 1:reps) {
+    gs <-igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE))
+    commsCCD <- CCD::consensus_community_detection(g, method = 'LP', r = c(0.7), t = t)
+    V(g)$community <-commsCCD$membership[order(match(commsCCD$name, V(g)$name))]
+    uncertain_nodes <- sum(commsCCD$gamma>0)/vcount(g)
+    uncertainty_q10 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.10),6)
+    uncertainty_q50 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.50),6)
+    uncertainty_q90 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.90),6)
+    nmi <- aricode::NMI(as.factor(V(g)$community), as.factor(V(g)$Faction))
+    nc=max(commsCCD$membership)
+    df<-rbind(df,data.frame(t,nmi,nc))
+    }
+}
+df %>% ggplot(aes(x=as.factor(t), y=nmi))+geom_boxplot()+geom_point(alpha=.5)
+df %>% ggplot(aes(x=as.factor(t), y=nc))+geom_boxplot()+geom_point(alpha=.5)
+
+ 
+dfsumm<- df %>% group_by(t) %>% summarize(
+    nmi_mean = mean(nmi ),
+    lower_quantile = quantile(nmi, 0.05),
+    upper_quantile = quantile(nmi, 0.95))
+
+ggplot( ) +
+  geom_ribbon(data = dfsumm, 
+              aes(x=t, ymin = lower_quantile, ymax = upper_quantile  ), 
+              fill = "lightyellow", alpha = .8)  +
+  geom_point(data = df, aes(x = t, y = nmi)) + 
+  geom_boxplot(data = df, aes(x = t, y = nmi, group = t)) + 
+  geom_line(data = dfsumm, aes(x = t, y = nmi_mean))+
+  theme_light()
+
+
+```
+
+
 # test on a Ring of Cliques with 3 single node components
 ```{r}
 rc <-CCD::make_ring_of_cliques(num_cliques = 6, clique_size = 8, add_bridges = T, add_center = T)
@@ -196,16 +244,16 @@ CC <-CCD::consensus_community_detection(
         g,
         p = 0.8,
         t = 501,
-        group_outliers = F,
+        group_outliers = T,
         method = 'WT',
         resolution = c(0.7),
-        shuffle = TRUE
+        shuffle = T
     )
         
 
+
 V(g)$community <- CC$membership[ order(match(CC$name, V(g)$name)) ]
 V(g)$gamma <- round( CC$gamma,2)
-V(g)$community[ V(g)$comm_size == 1 ] <- 0
 
 plot(CC, g)
 print(paste("Number of communities", max(V(g)$community)))
@@ -213,7 +261,7 @@ print(paste("Number of communities", max(V(g)$community)))
 
 table(V(g)$gamma)
 hist(V(g)$gamma)
-plot_uncertainty(g, CC, roundgamma=2)
+plot_uncertainty(g, CC, roundgamma=1)
 
 ```
 `

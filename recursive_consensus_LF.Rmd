@@ -1,7 +1,7 @@
 ---
 title: "consensus recursive algorithm"
 author: "Fabio Morea"
-date: "2023-065-23"
+date: "2023-12-15"
  
 output:
   pdf_document: default
@@ -138,11 +138,12 @@ print(em_rc/em_bi)
 
 ```{r}
 path <- "./benchmark/LFR/LFR_benchmark_"
-mui = seq(5,60,5)
-n_trials = 100
-gamma_lim = 0.80
+mui = seq(5,60,20)
+n_trials = 10
+p = 0.80
 threshold = 0.50
 method_base = 'LP'
+shuffle = TRUE
 ```
 
 
@@ -187,7 +188,7 @@ for (mu in mui) {
   nco <- normalized_co_occurrence(M)
   hist(nco)
     
-  CC <- consensus_communities(nco,gamma_lim=gamma_lim)
+  CC <- CCD::consensus_communities(nco,p=p)
   
   # make a community object  
   cons_communities_1 <- make_clusters(g, array(as.numeric(CC$cons_comm_label)))

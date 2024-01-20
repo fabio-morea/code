@@ -1,0 +1,229 @@
+---
+title: "CCD test a range of p values"
+author: "Fabio Morea"
+date: "2023-12-20"
+ 
+output:
+  pdf_document: default
+---
+
+########################## 
+
+ 
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(include = TRUE)
+library(devtools)  
+
+#devtools::install_github("fabio-morea/CCD", force = TRUE)
+library(CCD)
+
+library(igraph)
+library(tidyverse)
+ 
+library(gridExtra)
+library(ggpubr)
+library(aricode) # NMI 
+library(plotly)  
+library(scales)
+library(RColorBrewer)
+```
+
+
+
+
+
+```{r}
+
+plot_uncertainty <- function(g,comms, roundgamma = 1) {
+  
+  df <- data.frame(name = as.factor(V(g)$name),
+                   uncertainty =  round(V(g)$gamma, roundgamma),
+                   community = as.factor( V(g)$community) ,
+                   centrality = coreness(g))  
+  df <- df[order(df$community, df$name), ]
+  df$name <- reorder(  df$name, df$uncertainty )
+   
+  barchart<-df %>% ggplot()+geom_col(aes(y= name, x = uncertainty, fill = community)) 
+  print(ggplotly(barchart))
+  
+  
+  layout_fixed <- layout_nicely(g)
+
+  palette_comms <- rev(brewer.pal(length(unique(V(g)$community)), "Greys"))
+  for (i in 1:length(palette_comms)){
+      palette_comms[i] <- adjustcolor( palette_comms[i] , alpha.f = .6)
+  }
+
+  palette_gamma <- brewer.pal(length(unique(V(g)$gamma)), "Oranges")
+
+ 
+plot(comms,
+      g,  
+      col = palette_gamma[as.numeric(as.factor(V(g)$gamma))],
+      mark.border="black", 
+      mark.col= palette_comms,
+      vertex.label =  NA ,
+      vertex.size = coreness(g)*3
+  )
+  legend("topleft", 
+         title = "uncertainty",
+         legend = levels(as.factor(V(g)$gamma  )), 
+         col = palette_gamma[1:length(levels(as.factor(V(g)$gamma )))] , 
+         pch = 16, 
+         bty = "n")
+    legend("topright", 
+         title = "community",
+         legend = rev(unique(V(g)$community)), 
+         col = palette_comms[1:length(unique(V(g)$community))] , 
+         pch = 16, 
+         bty = "n")
+  
+   
+  
+  bubblechart <- df %>% ggplot(aes(x=centrality, y = uncertainty, color = community)) + 
+      geom_point(size = degree(g), alpha = 0.5)+
+      theme_light()  
+  print(ggplotly(bubblechart))
+
+}
+ 
+```
+
+ 
+
+
+# test on a Ring of Cliques 
+```{r}
+g <-CCD::make_ring_of_cliques(num_cliques = 6, clique_size = 8, add_bridges = F, add_center = T)
+# add  3 single node components
+#rc <- rc %>% add_vertices(3)  
+#V(rc)$name <- seq(1:vcount(rc))
+#plot(rc)
+plot(g)
+```
+# select a single value of paramenter P
+
+```{r}
+
+CC <-CCD::consensus_community_detection(
+        g,
+        p = 0.6,
+        t = 101,
+        group_outliers = F,
+        method = 'WT',
+        resolution = c(0.7),
+        shuffle = TRUE
+    )
+         
+
+V(g)$community <- CC$membership[ order(match(CC$name, V(g)$name)) ]
+V(g)$gamma <- round( 2*CC$gamma,1) /2
+#V(g)$community[ V(g)$comm_size == 1 ] <- 0
+
+plot(CC, g)
+print(paste("Number of communities", max(V(g)$community)))
+
+
+table(V(g)$gamma)
+hist(V(g)$gamma)
+plot_uncertainty(g, CC, roundgamma=2)
+
+```
+ ```{r}
+library(igraphdata)
+data(karate)
+gk <- karate
+plot(gk, vertex.label = V(gk)$name)
+ ```
+ 
+# test the impact of parameter P
+
+
+```{r}
+
+M <- CCD::find_communities_repeated(g, 
+                                    n_trials = 1000, 
+                                    method = 'LV', 
+                                    shuffle = T, 
+                                    resolution = c(0.7))
+
+D <- CCD::normalized_co_occurrence(M)
+ 
+MM=data.frame(name = V(g)$name)
+ps <- seq(.5,.99,.05)
+for (i in 1:length(ps)){
+  print(i)
+  tmp <- CCD::consensus_communities(D, p = ps[i], group_outliers = F)$cons_comm_label
+  MM <- cbind(MM,tmp )
+}
+colnames(MM) <- c("name", seq(1:i))
+
+DD <- CCD::normalized_co_occurrence(MM)
+CC <- CCD::consensus_communities(DD, p = 0.999, group_outliers = F)
+
+cons_communities <- make_clusters(g, array(as.numeric(CC$cons_comm_label)))
+cons_communities$gamma <- CC$gamma
+cons_communities$name <- CC$name
+cons_communities$comm_size <- CC$comm_size
+
+V(g)$community <- cons_communities$membership[ order(match(cons_communities$name, V(g)$name)) ]
+V(g)$gamma <- round( cons_communities$gamma,2)
+#V(g)$community[ V(g)$comm_size == 1 ] <- 0
+
+plot(cons_communities, g)
+print(paste("Number of communities", max(V(g)$community)))
+
+table(V(g)$gamma)
+hist(V(g)$gamma)
+plot_uncertainty(g, cons_communities, roundgamma=1)
+```
+
+
+# test stability  as a function of t and *p*
+How many communities are there?
+Are 9 and 31 with Han or not?
+
+```{r}
+M <- NA
+reps <- 100
+df <- data.frame()
+ 
+for (t in c(1, 11, 21, 51, 101 )) {
+  print(paste("Testing t = ", t))
+  for (j in 1:reps) {
+    gs <-igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE))
+    commsCCD <- CCD::consensus_community_detection(g, method = 'LP', r = c(0.7), t = t)
+    V(g)$community <-commsCCD$membership[order(match(commsCCD$name, V(g)$name))]
+    uncertain_nodes <- sum(commsCCD$gamma>0)/vcount(g)
+    uncertainty_q10 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.10),6)
+    uncertainty_q50 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.50),6)
+    uncertainty_q90 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.90),6)
+    nmi <- aricode::NMI(as.factor(V(g)$community), as.factor(V(g)$Faction))
+    nc=max(commsCCD$membership)
+    df<-rbind(df,data.frame(t,nmi,nc))
+    }
+}
+df %>% ggplot(aes(x=as.factor(t), y=nmi))+geom_boxplot()+geom_point(alpha=.5)
+df %>% ggplot(aes(x=as.factor(t), y=nc))+geom_boxplot()+geom_point(alpha=.5)
+
+ 
+dfsumm<- df %>% group_by(t) %>% summarize(
+    nmi_mean = mean(nmi ),
+    lower_quantile = quantile(nmi, 0.05),
+    upper_quantile = quantile(nmi, 0.95))
+
+ggplot( ) +
+  geom_ribbon(data = dfsumm, 
+              aes(x=t, ymin = lower_quantile, ymax = upper_quantile  ), 
+              fill = "lightyellow", alpha = .8)  +
+  geom_point(data = df, aes(x = t, y = nmi)) + 
+  geom_boxplot(data = df, aes(x = t, y = nmi, group = t)) + 
+  geom_line(data = dfsumm, aes(x = t, y = nmi_mean))+
+  theme_light()
+
+
+```
+
+
+`
