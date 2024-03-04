@@ -31,8 +31,10 @@ library(RColorBrewer)
 
 # test on a Ring of Cliques 
 ```{r}
-g <-CCD::make_ring_of_cliques(num_cliques = 3, clique_size = 8, add_bridges = T, add_center = T)
-plot(g)
+g <-CCD::make_ring_of_cliques(num_cliques = 5, clique_size = 4, add_bridges = F, add_center = F)
+g2<-g
+
+max(infomap.community(g, nb.trials = 1)$membership)
 #add 3 single node components
 #rc <- rc %>% add_vertices(3)  
 #V(rc)$name <- seq(1:vcount(rc))
@@ -40,19 +42,89 @@ plot(g)
 ```
 
 ```{r}
+threshold= 0.6
+t = 10
+gg <- g2
+s = 68
+
+recursive_consensus <- function(g, threshold , met, t) {
+   
+
+
+  M <- data.frame(name = V(g)$name)
+
+  for (i in 1:t){
+    comms <- CCD::find_communities(g, method = met)
+    comm_labeled <-data.frame(name = V(g)$name, memb = comms$membership)
+    M <- inner_join(M, comm_labeled, by = "name")
+    colnames(M) <- c("name", seq(1:i))
+  }
+  j = 1
+  
+  while (j <= 10) {
+    #print(paste('iteration', j))
+
+    co_occ_matrix <-  CCD::normalized_co_occurrence((M))
+    
+    # all entries of co occurrence matrix below a threshold are set to zero
+    co_occ_matrix[co_occ_matrix < threshold] <- 0
+ 
+       g2 <- graph_from_adjacency_matrix(
+        co_occ_matrix,
+        diag = FALSE,
+        weighted = TRUE,
+        mode = "upper"
+      )
+    # if any node is disconnected, join it to its strongest neighbor
+     cmp <- components(g2)
+     V(g2)$comp <- cmp$membership
+     singletons <- which(cmp$csize == 1)
+    
+     V(g2)$single <- ( cmp$membership %in% singletons )
+     
+     for (s in V(g2)$name[V(g2)$single]){
+       single_node <- which(V(g2)$name == as.character(s))
+       nbh <- unlist(neighborhood(g, order = 1, nodes = single_node, mode = "all"))[-1]
+       best_nbh <- nbh[which.max(strength(g)[nbh])] 
+       g2 <- add_edges(g2, edges = c(single_node, best_nbh), weight = 1)
+       #print(paste("Joined", single_node, "with", best_nbh))
+     }
+     cons_communities_2 <- CCD::find_communities(g2, method = met, verbose = FALSE)
+    
+    if (length(table(E(g2)$weight)) == 1) {  return(cons_communities_2)}
+    
+    M  <- CCD::find_communities_repeated (g2, n_trials = t, method = met)
+    j <- j + 1
+    
+  }
+  print("reached max iterations")
+  return(cons_communities_2)
+}
+
+g <-CCD::make_ring_of_cliques(num_cliques = 10, clique_size = 6, 
+                              add_bridges = T, add_center = F)
+
+table(recursive_consensus(g, threshold = 0.6, met = "IM", t = 100)$membership)
+#table(CCD::consensus_community_detection(g, p = 0.8, group_outliers = T, met = "IM", t = 200, q = 0.5)$membership)
+
+```
+
+
+```{r}
 
 CC <-CCD::consensus_community_detection(
         g,
         p = 0.8,
-        t = 501,
+        q = 0.0,
+        t = 10,
         group_outliers = T,
-        method = 'WT',
-        resolution = c(0.7),
+        method = 'IM',
+        resolution = NA,
         shuffle = T
     )
         
 
-
+print(max(CC$membership))
 V(g)$community <- CC$membership[ order(match(CC$name, V(g)$name)) ]
 V(g)$gamma <- round( CC$gamma,6)
 
@@ -67,61 +139,313 @@ plot( g, vertex.color = vertexcolor,   vertex.label = NA,
 `
 ```{r}
 results = data.frame()
+s = 6
+shuf = T
+pRC = 0.6
+pCCD = 0.9
+n_trials = 100
+q = 0.5
+ts = c( seq(4,15, 1), seq(20, 100, 5))
+for (reps in 1:20){
+for (s in  c(3,6)){
+for (i in ts){
+      g0 <- CCD::make_ring_of_cliques(num_cliques = i, 
+                                     clique_size = s, 
+                                     add_bridges = T, 
+                                     add_center = T)
+      
+      g <-igraph::permute(g0, sample(1:vcount(g0), size = vcount(g0), replace = FALSE))
 
-for (s in c(4, 6, 8)){
-  for (i in seq(5,100,5)){
-    #print(i)
-    g <- CCD::make_ring_of_cliques(num_cliques = i, 
-                                   clique_size = s, 
-                                   add_bridges = T, 
-                                   add_center = T)
-    
-    C_single <- cluster_louvain(g)
-    nc_LV = max(C_single$membership)
-    
-    CC <-CCD::consensus_community_detection(
-      g,
-      p = 0.8,
-      t = 101,
-      group_outliers = T,
-      method = 'LV',
-      shuffle = T
-    )
-    
-    nc_CCD <- max(CC$membership) 
-    results <- rbind(results, data.frame(s, i, nc_LV, nc_CCD))
-    
-    text <- (paste("clique size and number of cliques:", s, i , "LV: ", nc_LV, "CCD",nc_CCD))
-    print(text)
-    
-    #plot( CC, g,  vertex.label = NA, main = text)
-    
-    
+      for (met in c("LP","LV", "LD",  "WT", "IM")){#"
+      #print(i)
+
+      
+      C_single <- CCD::find_communities(g, met)
+      nc_single <- length(table(C_single$membership))
+      NMI_single <- aricode::NMI(factor(C_single$membership),factor(V(g)$community))
+      
+      CR <- recursive_consensus(g, 
+                                threshold = pRC, 
+                                met = met, 
+                                t = t)
+      
+      # join single nodes to a community
+      table(CR$membership)
+      nc_CR <- length(table(CR$membership)) 
+      NMI_CR <- aricode::NMI(factor(CR$membership),factor(V(g)$community))
+
+      
+      CC <-CCD::consensus_community_detection(
+        g,
+        resolution = NA,
+        p = pCCD,
+        q = q,
+        t = as.integer(t/q),
+        group_outliers = T,
+        method = met,
+        shuffle = shuf
+      )
+      # idx_center= vcount(g)
+      # idx_bridges = (idx_center-1) : (idx_center-s-1)
+      # gamma_center = round(CC$gamma[idx_center],6)
+      # gamma_bridges <- round(mean(CC$gamma[idx_bridges]),6)
+      
+      nc_CCD <- length(table(CC$membership))
+      NMI_CCD <- aricode::NMI(factor(CC$membership),factor(V(g)$community))
+      
+      results <- rbind(results, data.frame(reps, s, i, met, shuf, nc_single, nc_CCD, nc_CR,  p, q, NMI_single, NMI_CCD, NMI_CR ))
+      
+      text <- (paste("repetition, number of cliques single CR CCD:", reps, met, nc_single, nc_CR, nc_CCD))
+      print(text)
+      }
   }
 }
+}
+
+results %>% write_csv('RC_accuracy_test.csv')
+print(results)
+```
+
+DA FARE
+SU 20 RIPETIZIONI 
+CON S = 3 PER im E lp, S = 6 PER GLI ALTRI
+PRIMA PARTE DI BOX PER K0  3,4,5,6,7,8,9,10 (RC è MEGLIO DI ST)
+POI SECONDA PARTE 10 15 20 ...100
+IL COMPORTAMENTO è SEMPRE A FAVORE DI CCD
+
+```{r}
+format_plot <- function(p) {
+  p <- p +
+    theme_light() +
+    theme(aspect.ratio = 1.4) +
+    guides(shape = FALSE) +
+    theme(
+      #panel.grid.major = element_blank(),  # Remove major gridlines
+      panel.grid.minor = element_blank(),
+      # Remove minor gridlines
+      #panel.border = element_blank(),       # Remove panel borders
+      #panel.border = element_line(color = "black"),  # Set panel border color to black
+      axis.line = element_line(color = "black", size = 0.5),
+      # Set axis line color and size
+      axis.text = element_text(color = "black"),
+      # Set axis text color
+      strip.background = element_rect(fill = "lightgray"),
+      # Set background color for facet labels
+      strip.text = element_text(color = "black")  # Set color for facet labels
+    ) +labs(color = "") 
+  return(p)
+}
+```
+
+```{r}
+
+results <- read_csv('RC_accuracy_test.csv')
+df <- results |> 
+  select(-c('NMI_single', 'NMI_CR', 'NMI_CCD')) |>
+  pivot_longer(cols = c('nc_single', 'nc_CR', 'nc_CCD'), 
+               names_to = "cons",
+               values_to = "k") |>
+  mutate (k0 = i)|>
+  #filter(s == 3, met == "LV", i ==100, cons == "nc_CCD")|>
+  group_by( i, s, met, cons, k0) |>
+  summarise(
+     k_mean = mean(k),
+     k_min = min(k),
+     k_max = max(k) 
+   ) |>
+   ungroup()|>
+mutate(cons = case_when(
+    cons == "nc_single" ~ "single",
+    cons == "nc_CCD" ~ "CCD",
+    cons == "nc_CR" ~ "recursive",
+
+    TRUE ~ as.character(cons)  
+  ))
+ df
+```
 
 
+
+```{r}
+df1 <- df |> filter( k0 <= 15 & s == 3) |> filter(cons == "single")
+
+p1 <- df1 |>
+  ggplot( aes(x = k0, y = k_mean, color = cons, group = cons  )) +
+  geom_line(aes(x = k0, y = k0), color = "black", linewidth = .5, linetype = "dashed")+
+  geom_point(size = .1)+ 
+  geom_line(linewidth = 1)+
+  geom_errorbar(data = df1 |> filter(cons != "single"),aes(ymin = k_min, ymax = k_max), width = 0.0)+
+  geom_ribbon(data = df1 |> filter(cons == "single"), aes(ymin = k_min, ymax = k_max), fill = 'yellow', alpha = 0.2)+
+  facet_grid(s~met, scales = 'free')+# labeller = purrr::partial(label_both, sep = " = ")
+  labs(title = "performance of CCD vs recursive consensus",
+     x = "k0",
+     y = "k") 
+  
+p1<-format_plot(p1)
+p1
+```
+
+              
+
+```{r}
+df1 <- df |> filter(  s == 3) |> filter(cons != "single") |> filter(met == "IM") 
+
+p <- df1 |>
+  ggplot( aes(x = k0, y = k_mean, color = cons, group = cons  )) +
+  geom_line(aes(x = k0, y = k0), color = "black", linewidth = .5, linetype = "dashed")+
+  geom_point(size = 2)+ 
+  geom_line(linewidth = 1)+
+  geom_errorbar(aes(ymin = k_min, ymax = k_max), width = 2)+
+  #geom_ribbon( aes(ymin = k_min, ymax = k_max), fill = 'yellow', alpha = 0.2)+
+  facet_grid(s~met, scales = 'free')+# labeller = purrr::partial(label_both, sep = " = ")
+  labs( 
+     x = "k0",
+     y = "k") 
+  
+p<-format_plot(p) 
+p
+pIM<- p
 ```
 ```{r}
-results %>% write_csv('RC_accuracy_test.csv')
+df1 <- df  |> filter(  s == 3, k0 <= 20) |> filter(cons != "single") |> filter(met == "WT") 
+
+p <- df1 |>
+  ggplot( aes(x = k0, y = k_mean, color = cons, group = cons  )) +
+  geom_line(aes(x = k0, y = k0), color = "black", linewidth = .5, linetype = "dashed")+
+  geom_point(size = 2)+ 
+  geom_line(linewidth = 1)+
+  geom_errorbar(aes(ymin = k_min, ymax = k_max), width = .5)+
+  #geom_ribbon( aes(ymin = k_min, ymax = k_max), fill = 'yellow', alpha = 0.2)+
+  facet_grid(s~met, scales = 'free')+# labeller = purrr::partial(label_both, sep = " = ")
+  labs(
+     x = "k0",
+     y = "k") 
+  
+p<-format_plot(p) 
+p
+pWT<- p
 ```
+
+```{r}
+df1 <- df  |> filter(  s == 6, k0 <= 20) |> filter(cons != "single") |> filter(met == "LP") 
+
+p <- df1 |>
+  ggplot( aes(x = k0, y = k_mean, color = cons, group = cons  )) +
+  geom_line(aes(x = k0, y = k0), color = "black", linewidth = .5, linetype = "dashed")+
+  geom_point(size = 2)+ 
+  geom_line(linewidth = 1)+
+  geom_errorbar(aes(ymin = k_min, ymax = k_max), width = 1)+
+  #geom_ribbon( aes(ymin = k_min, ymax = k_max), fill = 'yellow', alpha = 0.2)+
+  facet_grid(s~met, scales = 'free')+# labeller = purrr::partial(label_both, sep = " = ")
+  labs(
+     x = "k0",
+     y = "k") 
+  
+p<-format_plot(p) 
+p
+pLP<- p
+```
+
+
+
+```{r}
+df1 <- df  |> filter(  s == 6, k0 <= 50) |> filter(cons != "single") |> filter(met == "LD") 
+
+p <- df1 |>
+  ggplot( aes(x = k0, y = k_mean, color = cons, group = cons  )) +
+  geom_line(aes(x = k0, y = k0), color = "black", linewidth = .5, linetype = "dashed")+
+  geom_point(size = 2)+ 
+  geom_line(linewidth = 1)+
+  geom_errorbar(aes(ymin = k_min, ymax = k_max), width = 1.5)+
+  #geom_ribbon( aes(ymin = k_min, ymax = k_max), fill = 'yellow', alpha = 0.2)+
+  facet_grid(s~met, scales = 'free')+# labeller = purrr::partial(label_both, sep = " = ")
+  labs(
+     x = "k0",
+     y = "k") 
+  
+p<-format_plot(p) #+ theme(legend.position = "none")
+p
+pLD<- p
+```
+
+
+```{r}
+df1 <- df  |> filter(  s == 6, k0 <= 50) |> filter(cons != "single") |> filter(met == "LV") 
+
+p <- df1 |>
+  ggplot( aes(x = k0, y = k_mean, color = cons, group = cons  )) +
+  geom_line(aes(x = k0, y = k0), color = "black", linewidth = .5, linetype = "dashed")+
+  geom_point(size = 2)+ 
+  geom_line(linewidth = 1)+
+  geom_errorbar(aes(ymin = k_min, ymax = k_max), width = 1.5)+
+  #geom_ribbon( aes(ymin = k_min, ymax = k_max), fill = 'yellow', alpha = 0.2)+
+  facet_grid(s~met, scales = 'free')+# labeller = purrr::partial(label_both, sep = " = ")
+  labs(
+     x = "k0",
+     y = "k") 
+  
+p<-format_plot(p)+ theme(legend.position = "none")
+p
+pLV<- p
+```
+
+
+```{r}
+
+```
+
+
+
+```{r}
+png("figure_RC_performance.png", width = 1000, height = 500)
+px<-ggarrange(pIM, pWT, pLD,   ncol = 3,   legend = "bottom")
+px
+dev.off()
+px
+ 
+
+```
+
+
+
 
 ```{r}
 #print(results)
+maxi = 100
 
-line_plot <- ggplot(results , aes(x = i)) +
-  geom_line(aes(y = i), color = "black", linewidth = .5) +
-  geom_line(aes(y = nc_LV), color = "blue", linewidth = 2) +
-  geom_point(aes(y = nc_LV), color = "blue", size = 2) +
-  geom_line(aes(y = nc_CCD), color = "green", linewidth = 1) +
-  geom_point(aes(y = nc_CCD), color = "green", size = 2) +
-  #labs(title = "Number of communities identified by LV and CCD(LV)",
-   #    x = "cliques in the model",
-    #   y = "communities") +
-  facet_wrap(~s)+
-  theme_minimal()
+plot2 <- ggplot(results %>% filter (shuf == TRUE), aes(x = i)) +
+  geom_hline(yintercept = 0.5, color = "black")+
 
-line_plot
+  geom_line(aes(y = gamma_bridges,  color = "bridges"), linewidth = .5) +
+  geom_point(aes(y = gamma_bridges, color = "bridges", shape = "bridges"),  size = 1) +
+  ylim(0.3, 1.01)  +
+  
+  #geom_line(aes(y = gamma_center,  color = "center"), linewidth = .5) +
+  #geom_point(aes(y = gamma_center, color = "center", shape = "center"),  size = 1) +
+  
+  #scale_shape_manual(name = "method", values = c("bridges" = 2, "center" = 1)) +
+  #scale_color_manual(name = "method", values = c("bridges" = "red", "center" = "blue")) +
+  
+  labs(title = "uncertainty coefficient associated to bridge nodes",
+     x = "cliques in the model",
+     y = "uncertainty coefficient") +
+  facet_grid(s~met, labeller = purrr::partial(label_both, sep = " = "))+
 
+  theme_light() +
+  theme(legend.position = "none") + theme(aspect.ratio = .8) + 
+  theme(
+    #panel.grid.major = element_blank(),  # Remove major gridlines
+    panel.grid.minor = element_blank(),  # Remove minor gridlines
+    panel.border = element_blank(),       # Remove panel borders
+    #panel.border = element_line(color = "black"),  # Set panel border color to black
+    axis.line = element_line(color = "black", size = 0.5),  # Set axis line color and size
+    axis.text = element_text(color = "black"),  # Set axis text color
+    strip.background = element_rect(fill = "lightgray"),  # Set background color for facet labels
+    strip.text = element_text(color = "black")  # Set color for facet labels
+  )
+
+plot2
+ggsave("figure_RC_gamma_bridge.png", plot = plot2, dpi = 300)
+  
 ```
 

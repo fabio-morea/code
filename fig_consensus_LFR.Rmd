@@ -12,6 +12,8 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(include = TRUE)
+# to extract R code only for faster run
+#knitr::purl("fig_consensus_LFR.Rmd")
 ```
 
 ```{r load libraries, include=FALSE}
@@ -174,9 +176,9 @@ recursive_consensus <- function(M, threshold , met, t) {
 ```{r}
 
 path <- "./benchmark/LFR/LFR_benchmark_"
-mui = seq(5, 60, 5)
-n_repetitions<-20
-n_trials = 100
+mui = seq(5, 70, 10)
+n_repetitions<-3
+n_trials = 50
 threshold = 0.60
 #resol = c(0.99)
 methods = c('LV', 'LD', 'LP', 'IM', 'WT')
@@ -188,11 +190,6 @@ nc_builtin <- c()
       uncertainty_q10 <- 0.0
       uncertainty_q50 <- 0.0
       uncertainty_q90 <- 0.0
- 
-M <- NA
-mu = 10
-
-
 
 for (mu in mui) {
   #print(paste("MU = ", mu))
@@ -202,10 +199,10 @@ for (mu in mui) {
     #      #g <- load_benchmark_network(mui = mu,path = path,verbose = FALSE)
 
     g <- make_benchmark_network(
-      n = 1000,
+      n = 500,
       average_degree = 10,
       max_degree = 40,
-      min_community = 5,
+      min_community = 20,
       max_community = 50,
       mu = mu / 100,
       tau1 = 2.0,
@@ -225,8 +222,7 @@ for (mu in mui) {
       
       M <- data.frame(name = V(g)$name)
       for (i in 1:n_trials) {
-        gs <-
-          igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE))
+        gs <-igraph::permute(g, sample(1:vcount(g), size = vcount(g), replace = FALSE))
         comms <- CCD::find_communities(gs, method = method)
         # order() function to get the communities found on gs in the order they appear in g
         V(g)$community <-
@@ -245,9 +241,7 @@ for (mu in mui) {
         summary_n_trials <-
           rbind(summary_n_trials , results_iteration)
         
-        comm_labeled <-
-          data.frame(name = V(gs)$name,
-                     memb = comms$membership)
+        comm_labeled <-data.frame(name = V(gs)$name,memb = comms$membership)
         M <- inner_join(M, comm_labeled, by = "name")
         colnames(M) <- c("name", seq(1:i))
         
@@ -291,8 +285,23 @@ for (mu in mui) {
       summary_n_trials <-rbind(summary_n_trials , results_iteration)
       
       
-      method <- paste0(method_base, '_CCD_p09g')
-      commsCCD <- CCD::consensus_communities(nco, p = 0.9)
+      method <- paste0(method_base, '_CCD_p08')
+      commsCCD <- CCD::consensus_communities(nco, p = 0.8)
+      V(g)$community <-commsCCD$cons_comm_label[order(match(commsCCD$name, V(g)$name))]
+      uncertain_nodes <- sum(commsCCD$gamma>0)/vcount(g)
+      uncertainty_q10 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.10),6)
+      uncertainty_q50 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.50),6)
+      uncertainty_q90 <- round(quantile(commsCCD$gamma[ commsCCD$gamma >0], 0.90),6)
+      
+      nmi <- aricode::NMI(as.factor(V(g)$community), as.factor(V(g)$comm_built_in))
+      mu_emp <- round(empirical_mu(g), 3)
+      nc_norm <- round(sum(table((V(g)$community)) > 1) / nc_builtin, 4)
+      met <- method
+      results_iteration <-data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm, uncertain_nodes, uncertainty_q10, uncertainty_q50, uncertainty_q90)
+      summary_n_trials <-rbind(summary_n_trials , results_iteration)
+      
+            method <- paste0(method_base, '_CCD_p08g')
+      #commsCCD <- CCD::consensus_communities(nco, p = 0.8)
       commsCCD[commsCCD$size == 1] <- 0
       V(g)$community <-commsCCD$cons_comm_label[order(match(commsCCD$name, V(g)$name))]
       uncertain_nodes <- sum(commsCCD$gamma>0)/vcount(g)
@@ -306,6 +315,9 @@ for (mu in mui) {
       met <- method
       results_iteration <-data.frame(mu, mu_built_in, mu_emp, met, j, nmi, nc_norm, uncertain_nodes, uncertainty_q10, uncertainty_q50, uncertainty_q90)
       summary_n_trials <-rbind(summary_n_trials , results_iteration)
+      
+      
+      
       uncertain_nodes <- 0.0
       uncertainty_q10 <- 0.0
       uncertainty_q50 <- 0.0
@@ -314,13 +326,136 @@ for (mu in mui) {
   }
 }
 
-#summary_n_trials  %>% write_csv('./results/results_cons_comm_detection.csv')
+summary_n_trials  %>% write_csv('./results/results_cons_comm_detection_06_08_G.csv')
 
  
 ```
+# make benchmarks
 
+```{r}
+
+
+for (mu in seq(5,55,5)){
+    for (t in 1:10){
+      print(paste(mu, t))
+        gfilename <- paste0("./benchmark/LFR/LFR_benchmark_1000_5_50_20_50_2_3_mu", mu, "_t",t,"_.gml")
+        g<-0
+        g <- make_benchmark_network(
+            n = 1000,
+            average_degree = 5,
+            max_degree = 50,
+            min_community = 20,
+            max_community = 50,
+            mu = mu / 100,
+            tau1 = 2,
+            tau2 = 3
+        )
+        V(g)$name <- 1:vcount(g)
+        write_graph(g, gfilename, format = "graphml")
+        test <- read_graph(gfilename, format = "graphml")
+    }
+}
+
+
+
+```
+
+```{r}
+nc_builtin <- max(V(g)$membership)
+
+      
+commsCCD <- CCD::consensus_community_detection(g, p=0.6, group_outliers = FALSE)
+V(g)$community <- commsCCD$membership[order(match(commsCCD$name, V(g)$name))]
+nc <- sum(table((V(g)$community)) > 1)
+nc_norm <- round( nc/ nc_builtin, 4)
+print(paste(nc, nc_builtin, nc_norm))
+
+
+commsCCD <- CCD::consensus_community_detection(g, p=0.8, group_outliers = FALSE)
+V(g)$community <- commsCCD$membership[order(match(commsCCD$name, V(g)$name))]
+nc <- length(unique(V(g)$community))
+nc_norm <- round( nc/ nc_builtin, 4)
+print(paste("comms: ",nc, nc_builtin, nc_norm))
+
+
+commsCCD$membership[commsCCD$comm_size == 1] <- 0 #group single node communities
+V(g)$community <- commsCCD$membership[order(match(commsCCD$name, V(g)$name))]
+nc <- length(unique(V(g)$community))
+nc_norm <- round( nc/ nc_builtin, 4)
+print(paste(nc, nc_builtin, nc_norm))
+
+
+```
  
+## performance depends on the network topology
+QUI STIAMO USANDO LE RETI LFR PRECOSTITUITE, LE STESSE DEL PRIMO PAPER
+CREATE IN PYTHON CON 
 
+n = 1000
+tau1 = 2
+tau2 = 3
+average_degree=5
+max_degree = 50
+min_community=  20
+max_community = 50
+
+```{r}
+df <- read_csv('./results/results_cons_comm_detection_LFR_base.csv')
+df <- df %>% 
+   mutate(mu_bi_int =  round(mu_built_in *2 ,1)/2)%>%
+   mutate(alg = substr(met, 1,2)) %>%
+   mutate(cons = substr(met, 4,15)) %>%
+   filter(mu_built_in <=0.5)
+
+
+png('figure12.png',width = 1600, height = 800)
+shapes <- c(6,2,0,21, 21)
+colorss <- c("darkgreen", "purple", "lightgray") 
+
+df1<-df |>
+  select(mu,  alg, cons,nmi, nc_norm) |>
+  filter(cons %in% c('CCD_p06', 'ST', 'consRec') ) |>
+  
+  pivot_longer(cols = -c(mu, alg, cons), 
+                 names_to = "variable", 
+                 values_to = "value")|>
+  group_by(mu, alg, cons, variable)|>
+    summarize(
+    v_mean = mean(value),
+    v_lower_quantile = quantile(value, 0.20),
+    v_upper_quantile = quantile(value, 0.80)
+  ) |>
+  mutate(method = case_when(
+    cons == 'CCD_p06' ~ 'CCD Aggregate p = 0.6',
+    cons == 'ST' ~ 'single trials',
+    cons == 'consRec' ~ 'Recursive Consensus',
+    TRUE ~ as.character(cons)
+  ))
+
+p12<-df1|>filter(variable %in% c( 'nmi', 'nc_norm'))|>
+  ggplot(aes(x = mu, y = v_mean, group = method, color = method)) +
+  geom_hline(yintercept = 1.0)+  
+  geom_point() +
+  geom_line()+
+  #geom_errorbar(data = df1 |> filter(cons != 'ST'),             aes(ymin = v_lower_quantile, ymax = v_upper_quantile),width = 1.0) + 
+  geom_ribbon( data = df1 |> filter(cons == 'ST'), 
+               aes(ymin = v_lower_quantile, ymax = v_upper_quantile),alpha = 0.2, color = NA )+
+      scale_shape_manual( values = shapes)+
+  scale_color_manual( values = colorss)+
+  facet_grid( variable ~ alg, scales = 'free_y')+
+  theme_light() + 
+  theme(aspect.ratio = 1)  +
+  theme(legend.position="right")+ 
+  labs( x = "mu", y = " ")+ 
+   theme(
+    legend.position = "top",    # Place the legend on top
+    legend.box = "horizontal"   # Display the legend items in a single line
+  )
+ 
+p12
+dev.off()
+p12
+```
 
 # read data from file
 
@@ -328,60 +463,331 @@ for (mu in mui) {
 library(tidyverse)
 library(ggpubr)
 
-df <- read_csv('./results/results_cons_comm_detection.csv')
- df <- df %>% 
+df <- read_csv('./results/results_cons_comm_detection__ __06_08_G.csv')
+df <- df %>% 
    mutate(mu_bi_int =  round(mu_built_in *2 ,1)/2)%>%
    mutate(alg = substr(met, 1,2)) %>%
-  mutate(cons = substr(met, 4,15))
+   mutate(cons = substr(met, 4,15)) %>%
+   filter(mu_built_in <=0.5)
 #table(df$mu_bi_int)
-#table(df$mu)
+table(df$mu)
 
-#df %>% ggplot()+geom_point(aes(x=mu, y=mu_emp))
+
+
+
+
 
 ```
-#plot
+
+```{r}
+dfo <- df |>   filter(cons %in% c('CCD_p06', 'CCD_p08', 'CCD_p08g') ) 
+df|> ggplot(aes(x=mu_emp, y=nmi, color = cons))+geom_point() + geom_line() + facet_grid(~ alg)
+df|> ggplot(aes(x=mu_emp, y=nc_norm, color = cons))+geom_point() + geom_line() +  facet_grid(~ alg)
+```
+
+
+#plot 11 compare the 3 methods for outliers
+
+```{r}
+
+long_df <- df %>%   
+    pivot_longer(cols = c('nmi', 'nc_norm'), 
+                 names_to = "variable", 
+                 values_to = "value") %>%
+    select(mu, mu_emp,mu_bi_int, alg, met, cons, variable, value)  
+
+table(long_df$mu)
+
+shapes <- c(6,2,0,21, 21)
+colorss <- c("black","darkgreen","purple" )  
+
+long_df |>
+  filter(cons %in% c('CCD_p06', 'CCD_p08', 'CCD_p08g') ) |>
+    mutate(cons_label = case_when(
+    cons == 'CCD_p06' ~ 'Aggregate p = 0.6',
+    cons == 'CCD_p08' ~ 'Highlight p = 0.8',
+    cons == 'CCD_p08g' ~ 'Group p = 0.8',
+    TRUE ~ as.character(cons)
+  ))|>
+  ggplot(aes(x = mu, y = value, group = met, color = cons_label)) + 
+  geom_vline(xintercept = 0.5, color = 'red', linetype = "dashed")+
+  geom_hline(yintercept = 1, color = 'darkgreen', linewidth = 0.5, linetype = "dashed")+
+  facet_grid( variable ~ alg, scales = 'free_y')+
+  geom_point( size = 1.5) +
+  geom_line( size = .5) +
+  theme_light() +  
+  theme(aspect.ratio = 1.0) +
+  scale_shape_manual(title, values = shapes)+
+  scale_color_manual(title, values = colorss)+
+  labs(color = "strategies for outliers") +  # Set the legend title
+ theme(
+    legend.position = "top",    # Place the legend on top
+    legend.box = "horizontal"   # Display the legend items in a single line
+  )
+  
+```
+
+
+```{r}
+png('figure11.png',width = 1600, height = 800)
+
+shapes <- c(6,2,0,21, 21)
+colorss <- c("red","blue","darkgreen") 
+title <- "Strategy for outliers"
+df1<-df |>
+  select(mu, mu_emp, met, j, alg, cons,  nmi, nc_norm, uncertain_nodes) |>
+  mutate(mu = mu/100)|>
+  filter(cons %in% c('CCD_p06', 'CCD_p08', 'CCD_p08g') ) |>
+  pivot_longer(cols = -c(mu, met, j, alg, cons), 
+                 names_to = "variable", 
+                 values_to = "value")|>
+  group_by(mu, met, j, alg, cons, variable)|>
+    summarize(
+    v_mean = mean(value),
+    v_lower_quantile = quantile(value, 0.20),
+    v_upper_quantile = quantile(value, 0.80)
+  ) |>
+  filter(cons %in% c('CCD_p06', 'CCD_p08', 'CCD_p08g') ) |>
+    mutate(method = case_when(
+    cons == 'CCD_p06' ~ 'Aggregate p = 0.6',
+    cons == 'CCD_p08' ~ 'Highlight p = 0.8',
+    cons == 'CCD_p08g' ~ 'Group p = 0.8',
+    TRUE ~ as.character(cons)
+  ))
+
+p1<-df1 %>% filter(variable %in% c( 'nmi', 'nc_norm'))|>
+  ggplot(aes(x = mu, y = v_mean, group = method, color = method)) +
+  geom_hline(yintercept = 1.0)+  
+  geom_point(size = 2) +  
+  geom_line(linewidth=1)+
+  geom_errorbar(aes(ymin = v_lower_quantile, ymax = v_upper_quantile),width = 0.0) + 
+  geom_ribbon(
+    aes(ymin = v_lower_quantile, ymax = v_upper_quantile, fill = method),
+    alpha = 0.1,
+    color = NA)+
+  facet_grid(  variable  ~ alg, scales = 'free')+
+  theme_light() + 
+  theme(aspect.ratio = 1)  +
+  theme(legend.position="right")+ 
+  #  scale_shape_manual( values = shapes)+
+  #scale_color_manual( values = colorss)+
+  labs( x = "mu", y = " ")+ 
+   theme(
+    legend.position = "top",    # Place the legend on top
+    legend.box = "horizontal"   # Display the legend items in a single line
+  )
+ 
+p1
+
+dev.off()
+
+p1
+
+```
+
+```{r}
+png('figure11.png',width = 1600, height = 800)
+shapes <- c(6,2,0,21, 21)
+colorss <- c("red","blue","darkgreen") 
+title <- "Strategy for outliers"
+
+df1<-df |>
+  select(mu,  alg, cons, nmi, nc_norm) |>
+  #filter(alg == 'WT')|>
+  filter(cons %in% c('CCD_p06', 'CCD_p08', 'CCD_p08g') ) |>
+  pivot_longer(cols = -c(mu,  alg, cons), 
+                 names_to = "variable", 
+                 values_to = "value")|>
+  group_by(mu, alg, cons, variable)|>
+    summarize(
+    v_mean = mean(value),
+    v_lower_quantile = quantile(value, 0.20),
+    v_upper_quantile = quantile(value, 0.80)
+  ) |>
+    mutate(method = case_when(
+    cons == 'CCD_p06' ~ 'Aggregate p = 0.6',
+    cons == 'CCD_p08' ~ 'Highlight p = 0.8',
+    cons == 'CCD_p08g' ~ 'Group p = 0.8',
+    TRUE ~ as.character(cons)
+  ))
+
+p11<-df1|>filter(variable %in% c( 'nmi', 'nc_norm'))|>
+  ggplot(aes(x = mu, y = v_mean, group = method, color = method)) +
+  geom_hline(yintercept = 1.0)+  
+  geom_point() +
+  geom_line()+
+  #geom_errorbar(data = df1 |> filter(cons != 'ST'),             aes(ymin = v_lower_quantile, ymax = v_upper_quantile),width = 1.0) + 
+  geom_ribbon( data = df1 |> filter(cons == 'ST'), 
+               aes(ymin = v_lower_quantile, ymax = v_upper_quantile),alpha = 0.2, color = NA )+
+      scale_shape_manual( values = shapes)+
+  scale_color_manual( values = colorss)+
+  facet_grid( variable ~ alg, scales = 'free_y')+
+  theme_light() + 
+  theme(aspect.ratio = 1)  +
+  theme(legend.position="right")+ 
+  labs( x = "mu", y = " ")+ 
+   theme(
+    legend.position = "top",    # Place the legend on top
+    legend.box = "horizontal"   # Display the legend items in a single line
+  )
+ 
+p11
+dev.off()
+p11
+```
+
+#plot 12 compare performance against ST and consREC
+
+
+
+```{r}
+png('figure12.png',width = 1600, height = 800)
+shapes <- c(6,2,0,21, 21)
+colorss <- c("darkgreen", "purple", "lightgray") 
+
+df1<-df |>
+  select(mu,  alg, cons,nmi, nc_norm) |>
+  filter(cons %in% c('CCD_p06', 'ST', 'consRec') ) |>
+  
+  pivot_longer(cols = -c(mu, alg, cons), 
+                 names_to = "variable", 
+                 values_to = "value")|>
+  group_by(mu, alg, cons, variable)|>
+    summarize(
+    v_mean = mean(value),
+    v_lower_quantile = quantile(value, 0.20),
+    v_upper_quantile = quantile(value, 0.80)
+  ) |>
+  mutate(method = case_when(
+    cons == 'CCD_p06' ~ 'CCD Aggregate p = 0.6',
+    cons == 'ST' ~ 'single trials',
+    cons == 'consRec' ~ 'Recursive Consensus',
+    TRUE ~ as.character(cons)
+  ))
+
+p12<-df1|>filter(variable %in% c( 'nmi', 'nc_norm'))|>
+  ggplot(aes(x = mu, y = v_mean, group = method, color = method)) +
+  geom_hline(yintercept = 1.0)+  
+  geom_point() +
+  geom_line()+
+  #geom_errorbar(data = df1 |> filter(cons != 'ST'),             aes(ymin = v_lower_quantile, ymax = v_upper_quantile),width = 1.0) + 
+  geom_ribbon( data = df1 |> filter(cons == 'ST'), 
+               aes(ymin = v_lower_quantile, ymax = v_upper_quantile),alpha = 0.2, color = NA )+
+      scale_shape_manual( values = shapes)+
+  scale_color_manual( values = colorss)+
+  facet_grid( variable ~ alg, scales = 'free_y')+
+  theme_light() + 
+  theme(aspect.ratio = 1)  +
+  theme(legend.position="right")+ 
+  labs( x = "mu", y = " ")+ 
+   theme(
+    legend.position = "top",    # Place the legend on top
+    legend.box = "horizontal"   # Display the legend items in a single line
+  )
+ 
+p12
+dev.off()
+p12
+```
 
 
 
 ```{r}
 
+df1 <- df %>%   
+    pivot_longer(cols = c('nmi', 'nc_norm'), 
+                 names_to = "variable", 
+                 values_to = "value") %>%
+    select(mu, mu_emp, alg, met, cons, variable, value)  
+
+
+shapes <- c(6,2,0,21, 21)
+colorss <- c("blue","darkgreen","red", "gray", "black")  
+title <- "strategies for outliers"
+df1 |>
+  filter(cons %in% c('CCD_p06', "ST", "consLF") ) |>
+    mutate(cons_label = case_when(
+    cons == 'CCD_p06' ~ 'CCD Aggregate p = 0.6',
+    cons == 'ST' ~ 'single trial ',
+    cons == 'CCD_p08g' ~ 'Group p = 0.8',
+    TRUE ~ as.character(cons)
+  ))|>
+  ggplot(aes(x = mu, y = value, group = cons_label, color = cons_label)) + 
+  geom_vline(xintercept = 0.5, color = 'red', linetype = "dashed")+
+  geom_hline(yintercept = 1, color = 'darkgreen', linewidth = 0.5, linetype = "dashed")+
+  facet_grid( variable ~ alg, scales = 'free_y')+
+  geom_point( size = 1.5) +
+  geom_line( size = 1) +
+  geom_smooth()+
+  theme_light() +  
+  theme(aspect.ratio = 1.0) +
+  scale_shape_manual(title, values = shapes)+
+  scale_color_manual(title, values = colorss)+
+ theme(
+    legend.position = "top",    # Place the legend on top
+    legend.box = "horizontal"   # Display the legend items in a single line
+  )
+  
+```
+
+
+ 
+
+```{r}
+df |> 
+    filter(cons %in% c('CCD_p06', 'CCD_p08', 'CCD_p08g') ) |>
+    ggplot(  aes(x = mu, y = nmi, group = cons, color = cons)) +
+  #geom_smooth() +
+  geom_point( size = 1.5) +
+  #geom_line( size = 1.0) +
+
+  geom_hline(yintercept = 1.0)+
+  #ylim(0.5,1.5)+
+  labs(title = "comparing different strategies for outlers", x = "mu", y = " ")+
+  theme_light() + #theme(aspect.ratio = 1) + 
+  facet_wrap(  ~ alg, scales = 'fixed') +
+  theme(aspect.ratio = 1.0)
+```
+
+```{r}
+
 
 row_2_plots <- function(df1, clegend, title){
-shapes <- c(6,2,0,21)
-colorss <- c("blue","darkgreen","red", "black")  
+shapes <- c(6,2,0,21, 21)
+colorss <- c("blue","darkgreen","red", "orange", "black")  
 
 
-p1 <- ggplot(data = df1, aes(x = mu_built_in , y = nmi,  shape = cons, color = cons))+
-  geom_point(size=1)+
-  geom_smooth(se=FALSE)+
+p1 <- ggplot(data = df1, aes(x = mu , y = nmi,  shape = cons, color = cons))+
+  geom_point(data = df1 %>% filter(cons == 'ST'),size=1, color = "gray")+
+  geom_smooth(data = df1 %>% filter(cons != 'ST'), se=FALSE, linewidth = .5)+
   scale_shape_manual(title, values = shapes)+
   scale_color_manual(title, values = colorss)+
-  #xlim(0,0.51)+
+  ylim(0.5,1.0)+
   geom_vline(xintercept = 0.5, color = 'red', linetype = "dashed")+
   geom_hline(yintercept = 1, color = 'darkgreen', size = .5, linetype = "dashed")+
-  theme_light() + theme(legend.position = 'none') + theme(aspect.ratio = .4)
+  theme_light() + theme(legend.position = 'none') + theme(aspect.ratio = .6)
 
-p2 <- ggplot(data = df1, aes(x = mu_built_in , y = nc_norm,  shape = cons, color = cons))+
-  geom_point(size=1)+
-  geom_smooth()+
+p2 <- ggplot(data = df1, aes(x = mu , y = nc_norm,  shape = cons, color = cons))+
+  geom_point(data = df1 %>% filter(cons == 'ST'), size=1, color = "gray")+
+  geom_smooth(data = df1 %>% filter(cons != 'ST'), se=FALSE, linewidth = .5)+
   scale_shape_manual(title, values = shapes)+
   scale_color_manual(title, values = colorss)+
-  #xlim(0,0.51)+
+  ylim(0.5,1.0)+
   geom_vline(xintercept = 0.5, color = 'red', linetype = "dashed")+
-  geom_hline(yintercept = 1, color = 'darkgreen', size = 0.5, linetype = "dashed")+
-  theme_light()  + theme(aspect.ratio = .4)
+  geom_hline(yintercept = 1, color = 'darkgreen', linewidth = 0.5, linetype = "dashed")+
+  theme_light()  + theme(aspect.ratio = .6)
 
-p3 <- ggplot(data = df1, aes(x = mu_built_in, y = mu_emp ,  shape = cons, color = cons))+
-  geom_smooth()+
-  #scale_shape_manual(title, values = shapes)+
-  #scale_color_manual(title, values = colorss)+
-  #xlim(0,0.71)+
-  #geom_abline(slope = 1, intercept = 0, color = 'darkgreen', size = .5, linetype = "dashed")+
-  #geom_segment(x =0, xend = 0.5, y = 0.5, yend = 0.5, color = "red", linetype = "dashed")+
-  #geom_segment(x =0.5, xend = 0.5, y = 0, yend = 0.5, color = "red", linetype = "dashed")+
-   theme_light() + theme(aspect.ratio = .4)
+p3 <- ggplot(data = df1, aes(x = mu, y = mu_emp ,  shape = cons, color = cons))+
+ geom_smooth()+
+ scale_shape_manual(title, values = shapes)+
+ scale_color_manual(title, values = colorss)+
+ xlim(0,0.71)+
+ geom_abline(slope = 1, intercept = 0, color = 'darkgreen', linewidth = .5, linetype = "dashed")+
+ geom_segment(x =0, xend = 0.5, y = 0.5, yend = 0.5, color = "red", linetype = "dashed")+
+ geom_segment(x =0.5, xend = 0.5, y = 0, yend = 0.5, color = "red", linetype = "dashed")+
+ theme_light() + theme(aspect.ratio = .6)
 
-p <- ggarrange(p1,p2, ncol = 2,common.legend = TRUE, legend="top")+ theme(aspect.ratio =.3)
+p <- ggarrange(p1,p2, ncol = 2,common.legend = TRUE, legend="top")+ theme(aspect.ratio =.8)
 p <- ggarrange(p1,p2,p3, ncol = 3,common.legend = TRUE, legend="top")+ theme(aspect.ratio = .3)
  
 
@@ -403,113 +809,147 @@ row_2_plots(df %>% filter(alg %in% c('WT')), clegend = F , title = "algorithm: W
 ```
  
 
+
+ 
 ```{r}
-library(tidyverse)
-df1<-df %>% select(mu,mu_bi_int, alg, cons,nmi, uncertain_nodes) %>%group_by(mu_bi_int, alg, cons)%>%
+df1<-df |>
+  select(mu, alg, cons, nmi, nc_norm) |>
+  filter(cons %in% c('CCD_p06', 'CCD_p08', 'CCD_p08g') ) |>
+  pivot_longer(cols = -c(mu, alg, cons), 
+                 names_to = "variable", 
+                 values_to = "value")|>
+  group_by(mu, alg, cons, variable)|>
     summarize(
-    mu_emp_mean = mean(mu_emp),
-     mu_emp_lower_quantile = quantile(mu_emp, 0.10),
-     mu_emp_upper_quantile = quantile(mu_emp, 0.90),
-    un = mean(uncertain_nodes),
-    mean_value = mean(nmi),
-    lower_quantile = quantile(nmi, 0.10),
-    upper_quantile = quantile(nmi, 0.90)
+    v_mean = mean(value),
+    v_lower_quantile = quantile(value, 0.20),
+    v_upper_quantile = quantile(value, 0.80)
   )
 
-df1 %>% ggplot(aes(x = mu_bi_int, y = mean_value, group = interaction(alg, cons), color = cons)) +
-  geom_point() +  geom_ribbon(
-    aes(ymin = lower_quantile, ymax = upper_quantile, fill = cons),
+p_ncnorm <- df1 %>% filter(variable == "nc_norm")|>
+  ggplot(aes(x = mu, y = v_mean, group = interaction(alg, cons), color = cons)) +
+  geom_hline(yintercept = 1.0)+  
+  geom_point() +  
+  geom_ribbon(
+    aes(ymin = v_lower_quantile, ymax = v_upper_quantile, fill = cons),
     alpha = 0.2,
-    color = NA
-  )+
-    geom_errorbar(
-    aes(ymin = lower_quantile, ymax = upper_quantile),
-    width = 0.0
-  ) +
-facet_wrap(vars(alg), ncol = 3,  scales = "free_y")+  theme_minimal()
+    color = NA)+
+  geom_errorbar(aes(ymin = v_lower_quantile, ymax = v_upper_quantile),width = 0.0) +
+  facet_wrap(vars(alg), nrow = 5,  scales = "free_y")+   
+  theme_light() + 
+  theme(aspect.ratio = .6) +
+  theme(legend.position="left")+ 
+  labs( x = "mu", y = "number of communities (normalized) k/k0")
+
+p_ncnorm
+ggsave("figure_LFR_perf_ncnorm.png", plot = p_ncnorm,  bg = "white", width = 10,  height = 20, units = 'cm', dpi = 300)
+
+```
 
 
+```{r}
+library(png)
+library(grid)
+#arrange_plots <- grid.arrange(p_ncnorm, p_nmi, nrow = 1)
+#arrange_plots
+#ggsave("figure_LFR_performance.png", plot = arrange_plots, width = 10, height = 30, units = 'cm', dpi = 300)
 
-df1 %>% ggplot(aes(x = mu, y = mean_value, group = interaction(alg, cons), color = alg)) +
-  geom_point(alpha = 0.5) + geom_line(alpha= 0.5)+
-  geom_errorbar(
-    aes(ymin = lower_quantile, ymax = upper_quantile),
-    width = 0.0
-  ) +
-facet_wrap(vars(cons), ncol = 3,  scales = "free_y")+  theme_minimal()
+# Read the images
+image1 <- readPNG("figure_LFR_perf_ncnorm.png")
+image2 <- readPNG("figure_LFR_perf_nmi.png")
 
-df1 %>% ggplot(aes(x = mu, y = un, group = interaction(alg, cons), color = cons)) +
-  geom_point(alpha = 0.5) + geom_line(alpha= 0.5)+
-facet_wrap(vars(cons), ncol = 3,  scales = "free_y")+  theme_minimal()
+# Plot the images using grid.arrange with specified widths
+pp<-grid.arrange(
+  rasterGrob(image1),  
+  rasterGrob(image2),    ncol = 2
+)
+ggsave("figure_LFR_performance.png", plot = pp, width = 25, height = 30, units = 'cm', dpi = 300)
+
+```
+
+# uncertain nodes
+
+
+```{r}
+df2<-df %>% 
+  select(mu,mu_bi_int, mu_emp, alg, cons,nmi, uncertain_nodes, uncertainty_q50, uncertainty_q10, uncertainty_q90) 
+
+  
+plot1 <- df2 %>% filter(cons %in% c("CCD_p08g"))%>% 
+  ggplot(aes(x = mu_bi_int, group = interaction(alg, cons), color = cons)) +
+  geom_line(aes(y = uncertain_nodes, color = cons)) +  
+  facet_wrap(vars(alg), ncol = 5,  scales = "fixed",labeller = purrr::partial(label_both, sep = " = "))+   
+  theme_light() +
+  theme(aspect.ratio = 1.0) +  
+  #guides(shape = FALSE) +
+  theme(legend.position="none") + 
+  labs(#title = "fraction of nodes with uncertainty > 0 "
+       x = "mixing parameter",
+       y = "uncertain nodes") +
+  theme(
+    #panel.grid.major = element_blank(),  # Remove major gridlines
+    panel.grid.minor = element_blank(),  # Remove minor gridlines
+    axis.line = element_line(color = "black", size = 0.5),  # Set axis line color and size
+    axis.text = element_text(color = "black"),  # Set axis text color
+    strip.background = element_rect(fill = "white"),  # Set background color for facet labels
+    strip.text = element_text(color = "black")  # Set color for facet labels
+  )
+
+
+plot1
+#ggsave("figure_LFR_uncert_nodes.png", plot = plot1, height = 5, units = 'cm', dpi = 300)
+
 
 ```
 
 ```{r}
+df2<-df %>% 
+  select(mu,mu_bi_int, mu_emp, alg, cons,nmi, uncertain_nodes, uncertainty_q50, uncertainty_q10, uncertainty_q90) %>%
+  filter(uncertainty_q10>0)%>%
+  filter(uncertainty_q50>0)%>%
+  filter(uncertainty_q90>0)%>%
+  group_by(mu_bi_int, alg, cons)%>%
+    summarize(
+    unc_10 = mean(uncertainty_q10, na.rm = TRUE),
+    unc_50 = mean(uncertainty_q50, na.rm = TRUE),
+    unc_90 = mean(uncertainty_q90, na.rm = TRUE),
+  )
 
+  
+plot2 <- df2 %>% filter(cons %in% c("CCD_p08g"))%>% 
+  ggplot(aes(x = mu_bi_int, group = interaction(alg, cons), color = cons)) +
+  geom_line(aes(y = unc_50, color = cons)) +  
+  geom_ribbon(aes(ymin = unc_10, ymax = unc_90, fill = cons),alpha = 0.2, color = NA)+
+  geom_hline(yintercept = 0.6)+
+  facet_wrap(vars(alg), ncol = 5,  scales = "fixed",labeller = purrr::partial(label_both, sep = " = "))+   
+  theme_light() +
+  theme(aspect.ratio = 1.0) +  
+  #guides(shape = FALSE) +
+  theme(legend.position="none") + 
+  labs(#title = "fraction of nodes with uncertainty > 0 "
+       x = "mixing parameter",
+       y = "uncertainty") +
+  theme(
+    #panel.grid.major = element_blank(),  # Remove major gridlines
+    panel.grid.minor = element_blank(),  # Remove minor gridlines
+    axis.line = element_line(color = "black", size = 0.5),  # Set axis line color and size
+    axis.text = element_text(color = "black"),  # Set axis text color
+    strip.background = element_rect(fill = "white"),  # Set background color for facet labels
+    strip.text = element_text(color = "black")  # Set color for facet labels
+  )
 
-df %>% ggplot()+  geom_boxplot(aes(y=nmi, group = cons, color = cons))+   facet_wrap(vars(alg), ncol = 3) 
-
-ggplot(data = df1, aes(group = cons))+
-  geom_point(data = df1%>%filter(cons=='ST'),aes(x = mu_built_in, y = mu_emp), color = 'black', shape = 1, size = 2)+
-  geom_point(data = df1%>%filter(cons=='cons0.5'),aes(x = mu_built_in, y = mu_emp), color = 'blue', shape = 1, size = 4)+
-  geom_point(data = df1%>%filter(cons=='cons0.8'),aes(x = mu_built_in, y = mu_emp), color = 'blue', shape = 2, size = 4)+
-  geom_point(data = df1%>%filter(cons=='consLF'),aes(x = mu_built_in, y = mu_emp), color = 'black', shape = 4, size = 4)+
-  scale_shape_manual(name = "methods", values=c(16, 4))+
-  ylim(0,0.7)+xlim(0,0.7)+
-  geom_abline(slope = 1, intercept = 0)+
-  geom_hline(yintercept = 0.5)+geom_vline(xintercept = 0.5, color = 'red')+
-  theme_light()+ facet_wrap(vars(alg), ncol = 3)+ theme(legend.position="top")
-
-ggplot(data = df1, aes(x = mu_built_in, y = mu_emp, color = cons, shape = cons))+geom_point()+
-  ylim(0,0.7)+xlim(0,0.7)+
-  geom_abline(slope = 1, intercept = 0)+
-  geom_hline(yintercept = 0.5)+geom_vline(xintercept = 0.5, color = 'red')+
-  theme_light()+ facet_wrap(vars(alg), ncol = 3)
-
-ggplot(data = df1, aes(x = mu_built_in, y = nmi, color = cons, shape = cons))+
-  geom_vline(xintercept = 0.5, color = 'red')+
-  geom_point( )+
-  theme_light()+ facet_wrap(vars(alg), ncol = 3) 
-
-ggplot(data = df1, aes(x = mu_emp, y = uncertain_nodes, color = cons, shape = cons))+
-  geom_point()+
-  geom_vline(xintercept = 0.5, color = 'red')+
-
-  geom_hline(yintercept = 1)+
-  theme_light()+ facet_wrap(vars(alg), ncol = 3) + theme(legend.position="top")
-
-ggplot(data = df1, aes(x = mu_emp, y = uncertainty_q50, color = cons, shape = cons))+
-  geom_point()+
-  geom_vline(xintercept = 0.5, color = 'red')+
-
-  geom_hline(yintercept = 1)+
-  theme_light()+ facet_wrap(vars(alg), ncol = 3) + theme(legend.position="top")
+plot2
+#ggsave("figure_LFR_uncert_coeff.png", plot = plot2, height = 5, units = 'cm', dpi = 300)
 
 ```
 
 ```{r}
-df %>% filter(alg %in% c('LP')) %>%
-  ggplot( aes(x = round(mu_emp,2), y = nmi, color = cons))+
-  geom_point()+
-  geom_line()+
-  theme_light()+ facet_wrap(vars(cons), ncol = 4)
-```
-```{r}
-df %>% filter(alg %in% c('IM',   'WT')) %>%
-  ggplot( aes(x = mu_emp, y = nmi, color = cons))+
-  geom_point()+
-  geom_smooth(se = FALSE)+
-  theme_light()+ facet_wrap(vars(alg), ncol = 5)
+arrange_plots <- grid.arrange(plot1, plot2, ncol = 1)
+arrange_plots
+ggsave("figure_LFR_uncertainty.png", plot = arrange_plots, height = 12, units = 'cm', dpi = 300)
+
 ```
 
 
 
 
-```{r}
-df %>%  filter(cons !='cons0.2')%>% filter(cons !='ST')%>%
-  ggplot( aes(x = mu, y = nmi, color = cons))+
-  geom_point()+
-  geom_smooth(se = FALSE)+
-  theme_light()+ facet_wrap(vars(alg), ncol = 5)
-```
-
+ 
